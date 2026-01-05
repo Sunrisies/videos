@@ -275,53 +275,45 @@ fn generate_default_thumbnail(thumbnail_path: &StdPath, file_type: &str) {
     }
 }
 
-/// 列出 public 目录下的所有视频文件和目录（递归扫描）
+/// 列出 public 目录下的所有视频文件和目录（只扫描第一层，不递归）
 async fn list_videos() -> Result<Json<VideoList>, Response> {
     let public_path = StdPath::new("public");
     if !public_path.exists() {
         return Err((StatusCode::NOT_FOUND, "Public directory not found").into_response());
     }
 
-    let videos = scan_directory_recursive(public_path, public_path, 0)?;
+    let videos = scan_directory_first_level(public_path)?;
     Ok(Json(VideoList { videos }))
 }
 
-/// 递归扫描目录，生成视频信息列表
-fn scan_directory_recursive(
-    base_path: &StdPath,
-    current_path: &StdPath,
-    depth: usize,
-) -> Result<Vec<VideoInfo>, Response> {
+/// 扫描第一层目录和文件
+fn scan_directory_first_level(base_path: &StdPath) -> Result<Vec<VideoInfo>, Response> {
     let mut items = Vec::new();
 
-    for entry in WalkDir::new(current_path)
+    for entry in WalkDir::new(base_path)
         .max_depth(1)
         .into_iter()
         .filter_map(|e| e.ok())
     {
         let path = entry.path();
 
-        // 跳过当前目录本身
-        if path == current_path {
+        // 跳过根目录本身
+        if path == base_path {
             continue;
         }
 
         if path.is_dir() {
-            // 递归处理子目录
-            let relative_path = path.strip_prefix(base_path).unwrap();
-            let children = scan_directory_recursive(base_path, path, depth + 1)?;
-
-            // 只有包含视频文件的目录才添加到结果中
-            if !children.is_empty() {
-                let info =
-                    get_video_info(path, relative_path.to_str().unwrap(), 0, Some(children))?;
+            // 目录 - 检查是否包含视频文件
+            if is_video_or_container(path) {
+                let relative_path = path.strip_prefix(base_path).unwrap();
+                let info = get_video_info(path, relative_path.to_str().unwrap(), false)?;
                 items.push(info);
             }
         } else if path.is_file() {
-            // 检查是否是视频相关文件
+            // 文件 - 检查是否是视频相关文件
             if is_video_or_container(path) {
                 let relative_path = path.strip_prefix(base_path).unwrap();
-                let info = get_video_info(path, relative_path.to_str().unwrap(), 0, None)?;
+                let info = get_video_info(path, relative_path.to_str().unwrap(), false)?;
                 items.push(info);
             }
         }
@@ -330,7 +322,7 @@ fn scan_directory_recursive(
     Ok(items)
 }
 
-/// 获取指定路径的视频详细信息（递归）
+/// 获取指定路径的视频详细信息
 async fn get_video_details(Path(path): Path<String>) -> Result<Json<VideoInfo>, Response> {
     // 移除可能的前缀斜杠
     let path = path.trim_start_matches('/');
@@ -341,23 +333,53 @@ async fn get_video_details(Path(path): Path<String>) -> Result<Json<VideoInfo>, 
     }
 
     let info = if full_path.is_dir() {
-        // 如果是目录，递归获取子文件
-        let children = scan_directory_recursive(StdPath::new("public"), &full_path, 0)?;
-        get_video_info(&full_path, path, 2, Some(children))?
+        // 如果是目录，获取目录信息和子文件
+        let children = scan_directory_children(&full_path)?;
+        let mut dir_info = get_video_info(&full_path, path, true)?;
+        dir_info.children = Some(children);
+        dir_info
     } else {
         // 如果是文件，直接获取信息
-        get_video_info(&full_path, path, 2, None)?
+        get_video_info(&full_path, path, true)?
     };
 
     Ok(Json(info))
+}
+
+/// 扫描目录的子文件（用于详情页）
+fn scan_directory_children(parent_path: &StdPath) -> Result<Vec<VideoInfo>, Response> {
+    let mut children = Vec::new();
+
+    for entry in WalkDir::new(parent_path)
+        .max_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+
+        // 跳过父目录本身
+        if path == parent_path {
+            continue;
+        }
+
+        if path.is_file() {
+            // 只添加文件，不递归目录
+            if is_video_or_container(path) {
+                let relative_path = path.strip_prefix(StdPath::new("public")).unwrap();
+                let info = get_video_info(path, relative_path.to_str().unwrap(), false)?;
+                children.push(info);
+            }
+        }
+    }
+
+    Ok(children)
 }
 
 /// 获取单个视频或目录的信息
 fn get_video_info(
     path: &StdPath,
     relative_path: &str,
-    child_depth: usize,
-    children: Option<Vec<VideoInfo>>,
+    include_children: bool,
 ) -> Result<VideoInfo, Response> {
     let name = path
         .file_name()
@@ -367,9 +389,17 @@ fn get_video_info(
 
     let public_path = StdPath::new("public");
     let full_relative_path = public_path.join(relative_path);
-    let web_path = format!("/public/{}", full_relative_path.display());
+    // 修复路径：使用正斜杠，并移除重复的public
+    let web_path = format!(
+        "/public/{}",
+        full_relative_path
+            .display()
+            .to_string()
+            .replace("\\", "/")
+            .replace("public/", "")
+    );
 
-    // 获取缩略图路径 - 修复这里：确保路径正确
+    // 获取缩略图路径 - 确保路径正确
     let thumbnail_path = get_correct_thumbnail_path(relative_path);
 
     if path.is_dir() {
@@ -384,12 +414,36 @@ fn get_video_info(
         // 获取目录的创建时间
         let created_at = get_created_at(path);
 
+        // 如果需要包含子文件
+        let children = if include_children {
+            let child_files = scan_directory_children(path)?;
+            if child_files.is_empty() {
+                None
+            } else {
+                Some(child_files)
+            }
+        } else {
+            None
+        };
+        // 设置缩略图路径（如果存在）- 确保返回正确的缩略图路径
+        let thumbnail = if thumbnail_path.exists() {
+            // 将缩略图路径转换为URL路径，使用正斜杠
+            let thumbnail_relative = thumbnail_path
+                .strip_prefix(StdPath::new("thumbnails"))
+                .unwrap();
+            let thumbnail_str = thumbnail_relative.display().to_string().replace("\\", "/");
+            Some(format!("/thumbnails/{}", thumbnail_str))
+        } else {
+            None
+        };
+        println!("thumbnail: {:?}", thumbnail);
+
         Ok(VideoInfo {
             name,
             path: web_path,
             r#type: r#type.to_string(),
             children,
-            thumbnail: None, // 目录暂时不提供缩略图
+            thumbnail, // 目录暂时不提供缩略图
             duration: None,
             size: None,
             resolution: None,
@@ -438,13 +492,14 @@ fn get_video_info(
             (None, None, None, None)
         };
 
-        // 设置缩略图路径（如果存在）- 修复这里：确保返回正确的缩略图路径
+        // 设置缩略图路径（如果存在）- 确保返回正确的缩略图路径
         let thumbnail = if thumbnail_path.exists() {
-            // 将缩略图路径转换为URL路径
+            // 将缩略图路径转换为URL路径，使用正斜杠
             let thumbnail_relative = thumbnail_path
                 .strip_prefix(StdPath::new("thumbnails"))
                 .unwrap();
-            Some(format!("/thumbnails/{}", thumbnail_relative.display()))
+            let thumbnail_str = thumbnail_relative.display().to_string().replace("\\", "/");
+            Some(format!("/thumbnails/{}", thumbnail_str))
         } else {
             None
         };
@@ -453,7 +508,7 @@ fn get_video_info(
             name,
             path: web_path,
             r#type: r#type.to_string(),
-            children: None,
+            children: None, // 文件类型永远没有children
             thumbnail,
             duration,
             size,
@@ -471,6 +526,9 @@ fn get_video_info(
 /// 获取正确的缩略图路径 - 修复版本
 fn get_correct_thumbnail_path(relative_path: &str) -> PathBuf {
     let thumbnails_path = StdPath::new("thumbnails");
+    println!("relative_path,{:?}", relative_path);
+    // let path_with_index = thumbnails_path.join(relative_path).join("index.jpg");
+    // println!("path_with_index{:?}", path_with_index);
     // 保持相同的相对路径结构，但改变扩展名为.jpg
     thumbnails_path.join(relative_path).with_extension("jpg")
 }

@@ -287,7 +287,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
         onClick={ togglePlay }
         crossOrigin="anonymous"
       >
-        <source src="" type="video/mp4" />
+        <source type="video/mp4" />
         您的浏览器不支持视频播放
       </video>
 
