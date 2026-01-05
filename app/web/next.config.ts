@@ -1,6 +1,16 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  images: {
+    remotePatterns: [
+      {
+        protocol: "http",
+        hostname: "192.168.1.6",
+        port: "3000",
+        pathname: "/**",
+      },
+    ],
+  },
   async headers() {
     return [
       // {

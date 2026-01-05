@@ -22,7 +22,7 @@ interface ApiVideoItem {
 }
 
 const getVideos = async (): Promise<MediaItem[]> => {
-  const response = await fetch("http://localhost:3000/api/videos")
+  const response = await fetch("http://192.168.1.6:3000/api/videos")
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
@@ -30,7 +30,7 @@ const getVideos = async (): Promise<MediaItem[]> => {
   console.log("Fetched videos:", data)
   // API返回的数据结构是 { videos: [...] }，需要提取数组
   const videos = data.videos || []
-
+  console.log('videos', videos)
   // 转换字段名以匹配类型定义
   return videos.map((video: ApiVideoItem) => ({
     name: video.name,

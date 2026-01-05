@@ -101,7 +101,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             const pathParts = videoUrl.split("\\")
             const filename = pathParts[pathParts.length - 1]
             // 使用相对路径访问public目录下的文件
-            videoUrl = `http://localhost:3000/public/${filename}`
+            videoUrl = `http://192.168.1.6:3000/public/${filename}`
           }
 
           // 如果是MP4文件，直接使用提供的路径
