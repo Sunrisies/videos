@@ -93,7 +93,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
         } else {
           // 普通视频文件 - 使用传入的path路径
           let videoUrl = media.path
-
+          console.log("Original video path:", videoUrl)
           // 如果path是以/public/开头，需要转换为实际的URL
           // 处理Windows路径分隔符
           if (videoUrl.includes("\\")) {
@@ -101,7 +101,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             const pathParts = videoUrl.split("\\")
             const filename = pathParts[pathParts.length - 1]
             // 使用相对路径访问public目录下的文件
-            videoUrl = `/${filename}`
+            videoUrl = `http://localhost:3000/public/${filename}`
           }
 
           // 如果是MP4文件，直接使用提供的路径

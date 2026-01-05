@@ -143,7 +143,9 @@ fn get_video_info(
 
     let public_path = StdPath::new("public");
     let full_relative_path = public_path.join(relative_path);
-    let web_path = format!("/public/{}", full_relative_path.display());
+
+    let web_path = format!("/{}", full_relative_path.display());
+    println!("Fetching details for path: {}", web_path);
 
     if path.is_dir() {
         // 检查是否是包含 m3u8 的目录
