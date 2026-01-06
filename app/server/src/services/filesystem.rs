@@ -23,8 +23,13 @@ pub fn initialize_thumbnails() {
 }
 
 /// 为目录及其所有子目录中的文件生成缩略图
+
 pub fn generate_thumbnails_for_directory(public_path: &StdPath, thumbnails_path: &StdPath) {
-    for entry in WalkDir::new(public_path).into_iter().filter_map(|e| e.ok()) {
+    for entry in WalkDir::new(public_path)
+        .max_depth(1)
+        .into_iter()
+        .filter_map(|e| e.ok())
+    {
         let path = entry.path();
 
         // 跳过根目录本身
@@ -33,9 +38,10 @@ pub fn generate_thumbnails_for_directory(public_path: &StdPath, thumbnails_path:
         }
 
         if path.is_file() {
+            // 处理普通文件
             let relative_path = path.strip_prefix(public_path).unwrap();
             let thumbnail_path = thumbnails_path.join(relative_path).with_extension("jpg");
-
+            println!("Generating thumbnail for file: {:?}", path);
             // 创建缩略图所在的子目录
             if let Some(parent) = thumbnail_path.parent() {
                 if !parent.exists() {
@@ -80,6 +86,58 @@ pub fn generate_thumbnails_for_directory(public_path: &StdPath, thumbnails_path:
             } else {
                 // 其他文件 - 生成默认图标
                 generate_default_thumbnail(&thumbnail_path, "file");
+            }
+        } else if path.is_dir() {
+            // 处理目录 - 检查是否是 m3u8 目录
+            let index_m3u8_path = path.join("index.m3u8");
+            if index_m3u8_path.exists() {
+                println!("Found m3u8 directory: {:?}", path);
+
+                // 获取相对路径
+                let relative_path = path.strip_prefix(public_path).unwrap();
+                let thumbnail_path = thumbnails_path.join(relative_path).join("index.jpg");
+
+                // 创建缩略图所在的子目录
+                if let Some(parent) = thumbnail_path.parent() {
+                    if !parent.exists() {
+                        if let Err(e) = std::fs::create_dir_all(parent) {
+                            println!("Failed to create directory {}: {}", parent.display(), e);
+                            continue;
+                        }
+                    }
+                }
+
+                // 如果缩略图已存在，跳过
+                if thumbnail_path.exists() {
+                    println!("Thumbnail already exists: {:?}", thumbnail_path);
+                    continue;
+                }
+
+                // 读取 index.m3u8 文件内容
+                if let Ok(content) = std::fs::read_to_string(&index_m3u8_path) {
+                    // 查找第一个 .ts 视频片段
+                    if let Some(first_ts_line) = content.lines().find(|line| line.ends_with(".ts"))
+                    {
+                        let ts_path = path.join(first_ts_line.trim());
+                        println!("Generating thumbnail for m3u8 segment: {:?}", ts_path);
+                        if ts_path.exists() {
+                            println!("Generating thumbnail for m3u8 segment: {:?}", ts_path);
+                            generate_video_thumbnail(&ts_path, &thumbnail_path);
+                        } else {
+                            println!("TS segment not found: {:?}", ts_path);
+                            // 如果找不到 TS 片段，生成默认图标
+                            generate_default_thumbnail(&thumbnail_path, "media");
+                        }
+                    } else {
+                        println!("No TS segments found in {:?}", index_m3u8_path);
+                        // 如果没有找到 TS 片段，生成默认图标
+                        generate_default_thumbnail(&thumbnail_path, "media");
+                    }
+                } else {
+                    println!("Failed to read m3u8 file: {:?}", index_m3u8_path);
+                    // 如果无法读取 m3u8 文件，生成默认图标
+                    generate_default_thumbnail(&thumbnail_path, "media");
+                }
             }
         }
     }
