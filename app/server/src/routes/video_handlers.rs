@@ -1,174 +1,100 @@
 use axum::{
     Json,
     extract::Path,
+    extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use std::sync::{Arc, Mutex};
 
 use crate::models::{VideoInfo, VideoList};
-use crate::services::{
-    format_size, get_created_at, get_thumbnail_web_path, get_web_path, scan_directory_children,
-    scan_directory_first_level,
-};
+use crate::services::VideoDbManager;
 
-/// 列出 public 目录下的所有视频文件和目录（只扫描第一层，不递归）
-pub async fn list_videos() -> Result<Json<VideoList>, Response> {
-    let public_path = std::path::Path::new("public");
-    if !public_path.exists() {
-        return Err((StatusCode::NOT_FOUND, "Public directory not found").into_response());
-    }
+/// 列出 public 目录下的所有视频文件和目录（从数据库查询）
+pub async fn list_videos(
+    State(state): State<Arc<Mutex<VideoDbManager>>>,
+) -> Result<Json<VideoList>, Response> {
+    let db_manager = state.lock().unwrap();
 
-    let items = scan_directory_first_level(public_path).map_err(|e| {
+    let videos = db_manager.get_root_videos().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            format!("Scan error: {}", e),
+            format!("Database error: {}", e),
         )
             .into_response()
     })?;
-
-    let videos: Vec<VideoInfo> = items
-        .into_iter()
-        .map(|(path, relative_path)| {
-            let relative_str = relative_path.to_string_lossy().to_string();
-            create_video_info(&path, &relative_str)
-        })
-        .collect::<Result<Vec<_>, _>>()?;
 
     Ok(Json(VideoList { videos }))
 }
 
 /// 获取指定路径的视频详细信息
-pub async fn get_video_details(Path(path): Path<String>) -> Result<Json<VideoInfo>, Response> {
+pub async fn get_video_details(
+    State(state): State<Arc<Mutex<VideoDbManager>>>,
+    Path(path): Path<String>,
+) -> Result<Json<VideoInfo>, Response> {
     // 移除可能的前缀斜杠
     let path = path.trim_start_matches('/');
     let full_path = std::path::Path::new("public").join(path);
+    let full_path_str = full_path.to_string_lossy().to_string();
 
-    if !full_path.exists() {
-        return Err((StatusCode::NOT_FOUND, "Path not found").into_response());
+    let db_manager = state.lock().unwrap();
+
+    // First check if the path exists in database
+    let info_opt = db_manager.get_video_by_path(&full_path_str).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Database error: {}", e),
+        )
+            .into_response()
+    })?;
+
+    if let Some(mut info) = info_opt {
+        // If it's a directory, get its children
+        if info.r#type == "directory" || info.r#type == "hls_directory" {
+            let children = db_manager.get_children(&full_path_str).map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {}", e),
+                )
+                    .into_response()
+            })?;
+            info.children = Some(children);
+        }
+
+        return Ok(Json(info));
     }
 
-    let info = if full_path.is_dir() {
-        // 如果是目录，获取目录信息和子文件
-        let children = scan_directory_children(&full_path).map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                format!("Scan error: {}", e),
-            )
-                .into_response()
-        })?;
-
-        let child_infos: Vec<VideoInfo> = children
-            .into_iter()
-            .map(|(child_path, child_relative_path)| {
-                let relative_str = child_relative_path.to_string_lossy().to_string();
-                create_video_info(&child_path, &relative_str)
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-
-        let mut dir_info = create_video_info(&full_path, path)?;
-        dir_info.children = Some(child_infos);
-        dir_info
-    } else {
-        // 如果是文件，直接获取信息
-        create_video_info(&full_path, path)?
-    };
-
-    Ok(Json(info))
+    // If not in database, return not found
+    Err((StatusCode::NOT_FOUND, "Path not found in database").into_response())
 }
 
-/// 创建 VideoInfo 对象
-fn create_video_info(path: &std::path::Path, relative_path: &str) -> Result<VideoInfo, Response> {
-    let name = path
-        .file_name()
-        .and_then(|n| n.to_str())
-        .unwrap_or("")
-        .to_string();
+/// Synchronize database with file system
+pub async fn sync_videos(
+    State(state): State<Arc<Mutex<VideoDbManager>>>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let db_manager = state.lock().unwrap();
 
-    let web_path = get_web_path(relative_path);
-    let thumbnail = get_thumbnail_web_path(relative_path);
+    match db_manager.sync_directory("public") {
+        Ok(_) => {
+            // Get updated count
+            let videos = db_manager.get_root_videos().map_err(|e| {
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    format!("Database error: {}", e),
+                )
+                    .into_response()
+            })?;
 
-    if path.is_dir() {
-        // 检查是否是包含 m3u8 的目录
-        let has_m3u8 = crate::services::filesystem::has_m3u8_file(path);
-        let r#type = if has_m3u8 {
-            "hls_directory"
-        } else {
-            "directory"
-        };
-
-        // 获取目录的创建时间
-        let created_at = get_created_at(path);
-
-        Ok(VideoInfo {
-            name,
-            path: web_path,
-            r#type: r#type.to_string(),
-            children: None,  // 目录的children在调用处设置
-            thumbnail: None, // 目录暂时不提供缩略图
-            duration: None,
-            size: None,
-            resolution: None,
-            bitrate: None,
-            codec: None,
-            created_at,
-            subtitle: None,
-        })
-    } else if path.is_file() {
-        let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-        let r#type = if extension.eq_ignore_ascii_case("mp4") {
-            "mp4"
-        } else if extension.eq_ignore_ascii_case("m3u8") {
-            "m3u8"
-        } else if extension.eq_ignore_ascii_case("ts") {
-            "ts"
-        } else if extension.eq_ignore_ascii_case("vtt") || extension.eq_ignore_ascii_case("srt") {
-            "subtitle"
-        } else if extension.eq_ignore_ascii_case("jpg")
-            || extension.eq_ignore_ascii_case("png")
-            || extension.eq_ignore_ascii_case("gif")
-        {
-            "image"
-        } else {
-            "unknown"
-        };
-
-        // 获取文件元数据
-        let metadata = std::fs::metadata(path).ok();
-        let size = metadata.as_ref().map(|m| format_size(m.len()));
-        let created_at =
-            metadata.and_then(|m| crate::services::filesystem::get_systemtime_created(&m));
-
-        // 如果是字幕文件，设置 subtitle 字段
-        let subtitle = if r#type == "subtitle" {
-            Some(web_path.clone())
-        } else {
-            None
-        };
-
-        // 对于 MP4 文件，尝试获取更多信息（这里返回 None，实际应用中可以使用 ffprobe 等工具）
-        let (duration, resolution, bitrate, codec) = if r#type == "mp4" {
-            // 这里可以集成 ffprobe 或其他视频分析工具
-            // 暂时返回 None
-            (None, None, None, None)
-        } else {
-            (None, None, None, None)
-        };
-
-        Ok(VideoInfo {
-            name,
-            path: web_path,
-            r#type: r#type.to_string(),
-            children: None, // 文件类型永远没有children
-            thumbnail,
-            duration,
-            size,
-            resolution,
-            bitrate,
-            codec,
-            created_at,
-            subtitle,
-        })
-    } else {
-        Err((StatusCode::BAD_REQUEST, "Invalid path type").into_response())
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Database synchronized successfully",
+                "count": videos.len()
+            })))
+        }
+        Err(e) => Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("Sync error: {}", e),
+        )
+            .into_response()),
     }
 }

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug, Clone)]
 pub struct VideoInfo {
     pub name: String,
     pub path: String,

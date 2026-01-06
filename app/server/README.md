@@ -32,6 +32,7 @@ public/
 ## API 接口
 
 ### 1. 获取视频列表
+
 ```
 GET /api/videos
 ```
@@ -61,6 +62,7 @@ GET /api/videos
 ```
 
 ### 2. 获取视频详情
+
 ```
 GET /api/videos/{path}
 ```
@@ -91,54 +93,58 @@ GET /api/videos/{path}
 ```
 
 ### 3. 访问静态视频文件
+
 ```
 GET /public/{filename}
 ```
 
 直接访问 public 目录下的视频文件，例如：
+
 - `GET /public/video1.mp4`
 - `GET /public/hls_stream/index.m3u8`
 - `GET /public/subtitles/video3.vtt`
 
 ## 视频类型说明
 
-| 类型 | 说明 |
-|------|------|
-| `mp4` | MP4 视频文件 |
-| `m3u8` | HLS 播放列表文件 |
-| `ts` | HLS 视频分片文件 |
-| `subtitle` | 字幕文件（vtt/srt） |
+| 类型              | 说明                               |
+| ----------------- | ---------------------------------- |
+| `mp4`           | MP4 视频文件                       |
+| `m3u8`          | HLS 播放列表文件                   |
+| `ts`            | HLS 视频分片文件                   |
+| `subtitle`      | 字幕文件（vtt/srt）                |
 | `hls_directory` | 包含 m3u8 文件的目录（HLS 流媒体） |
-| `directory` | 包含视频文件的普通目录 |
-| `unknown` | 其他文件类型 |
+| `directory`     | 包含视频文件的普通目录             |
+| `unknown`       | 其他文件类型                       |
 
 ## 视频元数据字段
 
 每个视频信息对象包含以下字段：
 
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `name` | string | 文件/目录名称 |
-| `path` | string | 访问路径（以 /public/ 开头） |
-| `type` | string | 视频类型 |
-| `children` | array | 子文件/目录（仅目录有效） |
-| `thumbnail` | string | 缩略图路径（仅 MP4 有效） |
-| `duration` | number | 视频时长（秒，暂未实现） |
-| `size` | string | 文件大小（格式化显示） |
+| 字段           | 类型   | 说明                                   |
+| -------------- | ------ | -------------------------------------- |
+| `name`       | string | 文件/目录名称                          |
+| `path`       | string | 访问路径（以 /public/ 开头）           |
+| `type`       | string | 视频类型                               |
+| `children`   | array  | 子文件/目录（仅目录有效）              |
+| `thumbnail`  | string | 缩略图路径（仅 MP4 有效）              |
+| `duration`   | number | 视频时长（秒，暂未实现）               |
+| `size`       | string | 文件大小（格式化显示）                 |
 | `resolution` | string | 视频分辨率（如 "1920x1080"，暂未实现） |
-| `bitrate` | string | 比特率（如 "2000kbps"，暂未实现） |
-| `codec` | string | 编码格式（如 "H.264"，暂未实现） |
-| `created_at` | string | 创建时间（格式：YYYY-MM-DD HH:MM:SS） |
-| `subtitle` | string | 字幕文件路径（仅字幕文件有效） |
+| `bitrate`    | string | 比特率（如 "2000kbps"，暂未实现）      |
+| `codec`      | string | 编码格式（如 "H.264"，暂未实现）       |
+| `created_at` | string | 创建时间（格式：YYYY-MM-DD HH:MM:SS）  |
+| `subtitle`   | string | 字幕文件路径（仅字幕文件有效）         |
 
 ## 运行方式
 
 ### 1. 安装依赖
+
 ```bash
 cargo build
 ```
 
 ### 2. 运行服务器
+
 ```bash
 cargo run
 ```
@@ -146,6 +152,7 @@ cargo run
 服务器将在 `0.0.0.0:3000` 启动。
 
 ### 3. 访问服务
+
 - API 列表: `http://localhost:3000/api/videos`
 - 视频详情: `http://localhost:3000/api/videos/{path}`
 - 静态文件: `http://localhost:3000/public/{filename}`
@@ -170,6 +177,7 @@ cargo run
 ## 使用示例
 
 ### 前端调用示例
+
 ```javascript
 // 获取视频列表
 const response = await fetch('/api/videos');
@@ -182,12 +190,12 @@ data.videos.forEach(video => {
     const videoElement = document.createElement('video');
     videoElement.src = video.path;
     videoElement.controls = true;
-    
+  
     // 显示元数据
     console.log(`视频: ${video.name}`);
     console.log(`大小: ${video.size}`);
     console.log(`创建时间: ${video.created_at}`);
-    
+  
     if (video.thumbnail) {
       // 显示缩略图
       const img = document.createElement('img');
@@ -195,7 +203,7 @@ data.videos.forEach(video => {
       img.alt = video.name;
       document.body.appendChild(img);
     }
-    
+  
     document.body.appendChild(videoElement);
   } else if (video.type === 'hls_directory') {
     // 处理 HLS 流媒体
@@ -211,6 +219,7 @@ console.log('视频详情:', detailData);
 ```
 
 ### 字幕文件处理
+
 ```javascript
 // 检查是否有字幕
 if (video.subtitle) {
@@ -243,3 +252,37 @@ if (video.subtitle) {
 5. **搜索功能**: 按名称、类型、时间搜索视频
 6. **权限控制**: 添加用户认证和访问控制
 7. **缓存机制**: 缓存目录扫描结果提升性能
+
+
+
+
+1. **启动服务器**：`cargo run`
+2. **访问API**：
+   * `http://localhost:3000/api/videos` - 获取视频列表
+   * `http://localhost:3000/api/videos/1221` - 获取1221目录详情
+   * `http://localhost:3000/api/refresh` - 刷新数据库
+   * `http://localhost:3000/api/stats` - 查看统计
+3. **访问文件**：
+   * `http://localhost:3000/public/20250821_170542.mp4` - 直接访问视频
+   * `http://localhost:3000/thumbnails/...` - 访问缩略图
+
+1. **启动服务器**：`cargo run`
+2. **访问API**：
+   * `http://localhost:3000/api/videos` - 获取视频列表
+   * `http://localhost:3000/api/videos/1221` - 获取1221目录详情
+   * `http://localhost:3000/api/refresh` - 刷新数据库
+   * `http://localhost:3000/api/stats` - 查看统计
+3. **访问文件**：
+   * `http://localhost:3000/public/20250821_170542.mp4` - 直接访问视频
+   * `http://localhost:3000/thumbnails/...` - 访问缩略图
+
+
+启动服务器：cargo run
+访问API：
+http://localhost:3000/api/videos - 获取视频列表
+http://localhost:3000/api/videos/1221 - 获取1221目录详情
+http://localhost:3000/api/refresh - 刷新数据库
+http://localhost:3000/api/stats - 查看统计
+访问文件：
+http://localhost:3000/public/20250821_170542.mp4 - 直接访问视频
+http://localhost:3000/thumbnails/... - 访问缩略图
