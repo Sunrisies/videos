@@ -119,7 +119,10 @@ impl VideoDbManager {
 
                 // Get duration from m3u8 file
                 let duration = self.get_m3u8_duration(path);
-
+                println!(
+                    "Duration: {:?}------parent_path: {:?}----name: {:?}",
+                    duration, parent_path, name
+                );
                 // Insert or update the directory as hls_directory
                 self.conn.execute(
                     "INSERT OR REPLACE INTO videos
@@ -154,6 +157,7 @@ impl VideoDbManager {
                 }
 
                 if entry_path.is_dir() {
+                    println!("路径：{},是m3u8的目录", entry_path.to_string_lossy());
                     // For directories, we need to check if they contain video content
                     if self.is_video_or_container(entry_path) {
                         let parent_path = entry_path
@@ -166,20 +170,28 @@ impl VideoDbManager {
                             .and_then(|n| n.to_str())
                             .unwrap_or("")
                             .to_string();
-
+                        // 读取当前目录下面的m3u8文件中的数据
+                        let m3u8_file_path = entry_path.join("*.m3u8");
+                        println!("m3u8_file_path: {:?}", m3u8_file_path);
+                        println!(
+                            "路径：{},是m3u8的目录,父目录：{}",
+                            entry_path.to_string_lossy(),
+                            parent_path
+                        );
                         let r#type = if self.has_m3u8_file(entry_path) {
                             "hls_directory"
                         } else {
                             "directory"
                         };
-
+                        let duration = self.get_m3u8_duration(entry_path);
                         let created_at = self.get_created_at(entry_path);
-
+                        let jpg_path_str = format!("{}\\index.jpg", entry_path.display());
+                        println!("Thumbnail path: {}", jpg_path_str); // 调试输出
                         // Insert or update
                         self.conn.execute(
                             "INSERT OR REPLACE INTO videos
-                            (name, path, type, parent_path, created_at, last_modified, is_deleted)
-                            VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
+                            (name, path, type, parent_path, created_at, last_modified, thumbnail, is_deleted,duration)
+                            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0,?8)",
                             &[
                                 &name,
                                 &entry_path.to_string_lossy().to_string(),
@@ -187,11 +199,13 @@ impl VideoDbManager {
                                 &parent_path,
                                 &created_at.as_deref().unwrap_or(""),
                                 current_time,
+                                &jpg_path_str.to_string(),
+                                duration.as_deref().unwrap_or(""),
                             ],
                         )?;
 
                         // Recursively scan subdirectories
-                        self.scan_and_insert(entry_path, current_time)?;
+                        // self.scan_and_insert(entry_path, current_time)?;
                     }
                 } else if entry_path.is_file() {
                     // Check if it's a video-related file
@@ -237,20 +251,15 @@ impl VideoDbManager {
                         // Get video duration based on type
                         let duration = if r#type == "mp4" {
                             self.get_video_duration(entry_path)
-                        } else if r#type == "m3u8" {
-                            // For m3u8 files, get duration from the file itself
-                            self.get_m3u8_duration(entry_path.parent().unwrap_or(entry_path))
                         } else {
                             None
                         };
-                        println!("duration: {:?}", duration);
                         // If it's a subtitle file, set subtitle field
                         let subtitle = if r#type == "subtitle" {
                             Some(entry_path.to_string_lossy().to_string())
                         } else {
                             None
                         };
-
                         // Insert or update
                         self.conn.execute(
                             "INSERT OR REPLACE INTO videos
@@ -624,36 +633,59 @@ impl VideoDbManager {
         }
     }
 
-    /// Get video duration using FFprobe
     fn get_video_duration(&self, video_path: &Path) -> Option<String> {
-        // Use ffmpeg to get video duration
-        let output = Command::new("ffmpeg")
-            .arg("-i")
+        let output = Command::new("ffprobe")
+            .arg("-v")
+            .arg("error")
+            .arg("-show_entries")
+            .arg("format=duration")
+            .arg("-of")
+            .arg("default=noprint_wrappers=1:nokey=1")
             .arg(video_path)
-            .arg("-f")
-            .arg("null")
-            .arg("-")
             .output()
             .ok()?;
 
-        // Parse the output to extract duration information
-        let output_str = String::from_utf8_lossy(&output.stderr);
+        let duration_str = String::from_utf8_lossy(&output.stdout);
+        let duration_secs: f64 = duration_str.trim().parse().ok()?;
 
-        // Look for duration in the output
-        // Example line: "Duration: 00:01:23.45, start: 0.000000, bitrate: 1234 kb/s"
-        let duration_regex =
-            regex::Regex::new(r"Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})").ok()?;
+        let total_seconds = duration_secs as u64;
+        let hours = total_seconds / 3600;
+        let minutes = (total_seconds % 3600) / 60;
+        let seconds = total_seconds % 60;
 
-        if let Some(captures) = duration_regex.captures(&output_str) {
-            let hours = captures.get(1)?.as_str().parse::<u32>().ok()?;
-            let minutes = captures.get(2)?.as_str().parse::<u32>().ok()?;
-            let seconds = captures.get(3)?.as_str().parse::<u32>().ok()?;
-
-            return Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds));
-        }
-
-        None
+        Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
     }
+
+    /// Get video duration using FFprobe
+    // fn get_video_duration(&self, video_path: &Path) -> Option<String> {
+    //     // Use ffmpeg to get video duration
+    //     let output = Command::new("ffmpeg")
+    //         .arg("-i")
+    //         .arg(video_path)
+    //         .arg("-f")
+    //         .arg("null")
+    //         .arg("-")
+    //         .output()
+    //         .ok()?;
+
+    //     // Parse the output to extract duration information
+    //     let output_str = String::from_utf8_lossy(&output.stderr);
+
+    //     // Look for duration in the output
+    //     // Example line: "Duration: 00:01:23.45, start: 0.000000, bitrate: 1234 kb/s"
+    //     let duration_regex =
+    //         regex::Regex::new(r"Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})").ok()?;
+
+    //     if let Some(captures) = duration_regex.captures(&output_str) {
+    //         let hours = captures.get(1)?.as_str().parse::<u32>().ok()?;
+    //         let minutes = captures.get(2)?.as_str().parse::<u32>().ok()?;
+    //         let seconds = captures.get(3)?.as_str().parse::<u32>().ok()?;
+
+    //         return Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds));
+    //     }
+
+    //     None
+    // }
 
     /// Get m3u8 duration by parsing the m3u8 file
     fn get_m3u8_duration(&self, m3u8_path: &Path) -> Option<String> {
