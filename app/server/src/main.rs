@@ -27,7 +27,7 @@ async fn main() {
         services::VideoDbManager::new("videos.db").expect("Failed to initialize database");
 
     // 从 public 目录中初始化数据库
-    if let Err(e) = db_manager.initialize_from_directory("public") {
+    if let Err(e) = db_manager.initialize_from_directory("public", false) {
         println!(
             "Warning: Failed to initialize database from public directory: {}",
             e

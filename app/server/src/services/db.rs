@@ -1,5 +1,6 @@
 use crate::models::VideoInfo;
 use crate::utils::{get_m3u8_duration, get_thumbnail_path, get_video_duration, has_m3u8_file};
+use chrono::{DateTime, FixedOffset, Utc};
 use rusqlite::{Connection, Result};
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -51,11 +52,26 @@ impl VideoDbManager {
     }
 
     /// Recursively scans a directory and populates the database.
-    pub fn initialize_from_directory(&self, root_path: &str) -> Result<()> {
+    pub fn initialize_from_directory(&self, root_path: &str, force: bool) -> Result<()> {
         println!("Initializing database from directory: {}", root_path);
 
-        // Clear existing data for fresh initialization
-        self.conn.execute("DELETE FROM videos", [])?;
+        // Check if database is already initialized
+        let mut stmt = self.conn.prepare("SELECT COUNT(*) FROM videos")?;
+        let count: i64 = stmt.query_row([], |row| row.get(0))?;
+
+        if count > 0 && !force {
+            println!(
+                "Database already contains {} records. Skipping initialization.",
+                count
+            );
+            return Ok(());
+        }
+
+        // If force is true or database is empty, clear and reinitialize
+        if force {
+            println!("Force reinitialization requested. Clearing existing data...");
+            self.conn.execute("DELETE FROM videos", [])?;
+        }
 
         // Scan and populate
         self.sync_directory(root_path)?;
@@ -552,27 +568,15 @@ impl VideoDbManager {
     /// Helper: Format system time
     fn get_systemtime_created(&self, metadata: &std::fs::Metadata) -> Option<String> {
         use std::time::UNIX_EPOCH;
+        println!("metadata: {:?}", metadata);
 
         metadata.created().ok().and_then(|time| {
-            let duration = time.duration_since(UNIX_EPOCH).ok()?;
-            let seconds = duration.as_secs();
-
-            let days = seconds / 86400;
-            let remaining = seconds % 86400;
-            let hours = remaining / 3600;
-            let remaining = remaining % 3600;
-            let minutes = remaining / 60;
-            let secs = remaining % 60;
-
-            let year = 1970 + (days / 365);
-            let day_of_year = days % 365;
-            let month = (day_of_year / 30) + 1;
-            let day = (day_of_year % 30) + 1;
-
-            Some(format!(
-                "{:04}-{:02}-{:02} {:02}:{:02}:{:02}",
-                year, month, day, hours, minutes, secs
-            ))
+            let timestamp = time.duration_since(UNIX_EPOCH).ok()?;
+            let nanos = timestamp.as_nanos() as i64;
+            let datetime = DateTime::from_timestamp_nanos(nanos);
+            let beijing = FixedOffset::east_opt(8 * 3600).unwrap();
+            let bj = datetime.with_timezone(&beijing);
+            Some(bj.format("%Y-%m-%d %H:%M:%S").to_string())
         })
     }
 
