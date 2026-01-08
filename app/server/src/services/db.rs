@@ -1,8 +1,7 @@
 use crate::models::VideoInfo;
+use crate::utils::{get_m3u8_duration, get_thumbnail_path, get_video_duration, has_m3u8_file};
 use rusqlite::{Connection, Result};
-use std::fs;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use walkdir::WalkDir;
 
 /// Database Manager Implementation
@@ -100,7 +99,7 @@ impl VideoDbManager {
     fn scan_and_insert(&self, path: &Path, current_time: &str) -> Result<()> {
         if path.is_dir() {
             // Check if this directory contains m3u8 files
-            let has_m3u8 = self.has_m3u8_file(path);
+            let has_m3u8 = has_m3u8_file(path);
 
             if has_m3u8 {
                 // For m3u8 directories, store the directory but don't store individual m3u8/ts files
@@ -118,7 +117,7 @@ impl VideoDbManager {
                 let created_at = self.get_created_at(path);
 
                 // Get duration from m3u8 file
-                let duration = self.get_m3u8_duration(path);
+                let duration = get_m3u8_duration(path);
                 println!(
                     "Duration: {:?}------parent_path: {:?}----name: {:?}",
                     duration, parent_path, name
@@ -178,12 +177,12 @@ impl VideoDbManager {
                             entry_path.to_string_lossy(),
                             parent_path
                         );
-                        let r#type = if self.has_m3u8_file(entry_path) {
+                        let r#type = if has_m3u8_file(entry_path) {
                             "hls_directory"
                         } else {
                             "directory"
                         };
-                        let duration = self.get_m3u8_duration(entry_path);
+                        let duration = get_m3u8_duration(entry_path);
                         let created_at = self.get_created_at(entry_path);
                         let jpg_path_str = format!("{}\\index.jpg", entry_path.display());
                         println!("Thumbnail path: {}", jpg_path_str); // 调试输出
@@ -203,9 +202,6 @@ impl VideoDbManager {
                                 duration.as_deref().unwrap_or(""),
                             ],
                         )?;
-
-                        // Recursively scan subdirectories
-                        // self.scan_and_insert(entry_path, current_time)?;
                     }
                 } else if entry_path.is_file() {
                     // Check if it's a video-related file
@@ -246,11 +242,11 @@ impl VideoDbManager {
                         let created_at = metadata.and_then(|m| self.get_systemtime_created(&m));
 
                         // Get thumbnail path
-                        let thumbnail = self.get_thumbnail_path(entry_path);
+                        let thumbnail = get_thumbnail_path(entry_path);
 
                         // Get video duration based on type
                         let duration = if r#type == "mp4" {
-                            self.get_video_duration(entry_path)
+                            get_video_duration(entry_path)
                         } else {
                             None
                         };
@@ -502,7 +498,7 @@ impl VideoDbManager {
     /// Helper: Check if path is video or container
     fn is_video_or_container(&self, path: &Path) -> bool {
         if path.is_dir() {
-            return self.has_m3u8_file(path) || self.has_video_file(path);
+            return has_m3u8_file(path) || self.has_video_file(path);
         }
         if path.is_file() {
             let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
@@ -510,7 +506,7 @@ impl VideoDbManager {
             // If this is a ts file, check if there's an m3u8 file in the same directory
             if extension.eq_ignore_ascii_case("ts") {
                 if let Some(parent) = path.parent() {
-                    if self.has_m3u8_file(parent) {
+                    if has_m3u8_file(parent) {
                         return false; // Skip ts files when m3u8 exists
                     }
                 }
@@ -526,24 +522,6 @@ impl VideoDbManager {
                 || extension.eq_ignore_ascii_case("gif");
         }
         false
-    }
-
-    /// Helper: Check if directory has m3u8 file
-    fn has_m3u8_file(&self, path: &Path) -> bool {
-        if !path.is_dir() {
-            return false;
-        }
-        WalkDir::new(path)
-            .max_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .any(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("m3u8"))
-                    .unwrap_or(false)
-            })
     }
 
     /// Helper: Check if directory has video file
@@ -613,114 +591,5 @@ impl VideoDbManager {
         } else {
             format!("{} B", bytes)
         }
-    }
-
-    /// Helper: Get thumbnail path
-    fn get_thumbnail_path(&self, file_path: &Path) -> Option<String> {
-        // Get relative path from public directory
-        let public_path = Path::new("public");
-        if let Ok(relative_path) = file_path.strip_prefix(public_path) {
-            let thumbnails_path = Path::new("thumbnails");
-            let thumbnail_path = thumbnails_path.join(relative_path).with_extension("jpg");
-
-            if thumbnail_path.exists() {
-                Some(thumbnail_path.to_string_lossy().to_string())
-            } else {
-                None
-            }
-        } else {
-            None
-        }
-    }
-
-    fn get_video_duration(&self, video_path: &Path) -> Option<String> {
-        let output = Command::new("ffprobe")
-            .arg("-v")
-            .arg("error")
-            .arg("-show_entries")
-            .arg("format=duration")
-            .arg("-of")
-            .arg("default=noprint_wrappers=1:nokey=1")
-            .arg(video_path)
-            .output()
-            .ok()?;
-
-        let duration_str = String::from_utf8_lossy(&output.stdout);
-        let duration_secs: f64 = duration_str.trim().parse().ok()?;
-
-        let total_seconds = duration_secs as u64;
-        let hours = total_seconds / 3600;
-        let minutes = (total_seconds % 3600) / 60;
-        let seconds = total_seconds % 60;
-
-        Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
-    }
-
-    /// Get video duration using FFprobe
-    // fn get_video_duration(&self, video_path: &Path) -> Option<String> {
-    //     // Use ffmpeg to get video duration
-    //     let output = Command::new("ffmpeg")
-    //         .arg("-i")
-    //         .arg(video_path)
-    //         .arg("-f")
-    //         .arg("null")
-    //         .arg("-")
-    //         .output()
-    //         .ok()?;
-
-    //     // Parse the output to extract duration information
-    //     let output_str = String::from_utf8_lossy(&output.stderr);
-
-    //     // Look for duration in the output
-    //     // Example line: "Duration: 00:01:23.45, start: 0.000000, bitrate: 1234 kb/s"
-    //     let duration_regex =
-    //         regex::Regex::new(r"Duration: (\d{2}):(\d{2}):(\d{2})\.(\d{2})").ok()?;
-
-    //     if let Some(captures) = duration_regex.captures(&output_str) {
-    //         let hours = captures.get(1)?.as_str().parse::<u32>().ok()?;
-    //         let minutes = captures.get(2)?.as_str().parse::<u32>().ok()?;
-    //         let seconds = captures.get(3)?.as_str().parse::<u32>().ok()?;
-
-    //         return Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds));
-    //     }
-
-    //     None
-    // }
-
-    /// Get m3u8 duration by parsing the m3u8 file
-    fn get_m3u8_duration(&self, m3u8_path: &Path) -> Option<String> {
-        // Find the index.m3u8 file in the directory
-        let index_m3u8 = m3u8_path.join("index.m3u8");
-
-        if !index_m3u8.exists() {
-            return None;
-        }
-
-        // Read the m3u8 file content
-        let content = fs::read_to_string(&index_m3u8).ok()?;
-
-        // Parse the m3u8 file to calculate total duration
-        let mut total_duration = 0.0;
-
-        for line in content.lines() {
-            // Look for lines starting with #EXTINF: which contain duration info
-            if line.starts_with("#EXTINF:") {
-                // Extract the duration value
-                let duration_part = line.trim_start_matches("#EXTINF:");
-                if let Some(comma_pos) = duration_part.find(',') {
-                    let duration_str = &duration_part[..comma_pos];
-                    if let Ok(duration) = duration_str.trim().parse::<f64>() {
-                        total_duration += duration;
-                    }
-                }
-            }
-        }
-
-        // Convert total duration to HH:MM:SS format
-        let hours = (total_duration / 3600.0).floor() as u32;
-        let minutes = ((total_duration % 3600.0) / 60.0).floor() as u32;
-        let seconds = (total_duration % 60.0).floor() as u32;
-
-        Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
     }
 }

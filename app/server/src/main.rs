@@ -22,11 +22,11 @@ async fn main() {
     // 初始化缩略图目录
     services::initialize_thumbnails();
 
-    // Initialize database
+    // 初始化数据库
     let db_manager =
         services::VideoDbManager::new("videos.db").expect("Failed to initialize database");
 
-    // Scan and populate database from public directory
+    // 从 public 目录中初始化数据库
     if let Err(e) = db_manager.initialize_from_directory("public") {
         println!(
             "Warning: Failed to initialize database from public directory: {}",
@@ -36,7 +36,7 @@ async fn main() {
         println!("Database initialized successfully");
     }
 
-    // Create shared state
+    // 创建共享状态
     let shared_state = Arc::new(Mutex::new(db_manager));
 
     // 创建 CORS 中间件 - 允许所有来源
