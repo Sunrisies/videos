@@ -8,15 +8,16 @@ use axum::{
 use std::sync::{Arc, Mutex};
 
 use crate::models::{VideoInfo, VideoList};
-use crate::services::VideoDbManager;
+use crate::services::{DirectorySync, VideoDao, VideoDbManager};
 
 /// 列出 public 目录下的所有视频文件和目录（从数据库查询）
 pub async fn list_videos(
     State(state): State<Arc<Mutex<VideoDbManager>>>,
 ) -> Result<Json<VideoList>, Response> {
     let db_manager = state.lock().unwrap();
+    let video_dao = VideoDao::new(&db_manager);
 
-    let videos = db_manager.get_root_videos().map_err(|e| {
+    let videos = video_dao.get_root_videos().map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Database error: {}", e),
@@ -38,9 +39,10 @@ pub async fn get_video_details(
     let full_path_str = full_path.to_string_lossy().to_string();
 
     let db_manager = state.lock().unwrap();
+    let video_dao = VideoDao::new(&db_manager);
 
     // First check if the path exists in database
-    let info_opt = db_manager.get_video_by_path(&full_path_str).map_err(|e| {
+    let info_opt = video_dao.get_video_by_path(&full_path_str).map_err(|e| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
             format!("Database error: {}", e),
@@ -51,7 +53,7 @@ pub async fn get_video_details(
     if let Some(mut info) = info_opt {
         // If it's a directory, get its children
         if info.r#type == "directory" || info.r#type == "hls_directory" {
-            let children = db_manager.get_children(&full_path_str).map_err(|e| {
+            let children = video_dao.get_children(&full_path_str).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Database error: {}", e),
@@ -73,11 +75,13 @@ pub async fn sync_videos(
     State(state): State<Arc<Mutex<VideoDbManager>>>,
 ) -> Result<Json<serde_json::Value>, Response> {
     let db_manager = state.lock().unwrap();
+    let sync = DirectorySync::new(&db_manager);
 
-    match db_manager.sync_directory("public") {
+    match sync.sync_directory("public") {
         Ok(_) => {
             // Get updated count
-            let videos = db_manager.get_root_videos().map_err(|e| {
+            let video_dao = VideoDao::new(&db_manager);
+            let videos = video_dao.get_root_videos().map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     format!("Database error: {}", e),
