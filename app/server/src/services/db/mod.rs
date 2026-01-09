@@ -10,5 +10,4 @@ pub mod video_dao;
 
 pub use connection::VideoDbManager;
 pub use sync::DirectorySync;
-pub use tree::TreeBuilder;
 pub use video_dao::VideoDao;

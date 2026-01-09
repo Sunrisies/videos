@@ -1,7 +1,9 @@
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::{queries, video_types};
-use crate::utils::{get_m3u8_duration, get_thumbnail_path, get_video_duration, has_m3u8_file};
-use chrono::{DateTime, FixedOffset};
+use crate::utils::{
+    format_size, get_created_at, get_m3u8_duration, get_systemtime_created, get_thumbnail_path,
+    get_video_duration, has_m3u8_file, has_video_file, is_video_or_container,
+};
 use rusqlite::Result;
 use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
@@ -95,7 +97,7 @@ impl<'a> DirectorySync<'a> {
                     .unwrap_or("")
                     .to_string();
 
-                let created_at = self.get_created_at(path);
+                let created_at = get_created_at(path);
 
                 // 从 m3u8 文件获取时长
                 let duration = get_m3u8_duration(path);
@@ -137,7 +139,7 @@ impl<'a> DirectorySync<'a> {
                 if entry_path.is_dir() {
                     println!("路径：{},是m3u8的目录", entry_path.to_string_lossy());
                     // 对于目录，我们需要检查它们是否包含视频内容
-                    if self.is_video_or_container(entry_path) {
+                    if is_video_or_container(entry_path) {
                         let parent_path = entry_path
                             .parent()
                             .map(|p| p.to_string_lossy().to_string())
@@ -162,7 +164,7 @@ impl<'a> DirectorySync<'a> {
                             video_types::DIRECTORY
                         };
                         let duration = get_m3u8_duration(entry_path);
-                        let created_at = self.get_created_at(entry_path);
+                        let created_at = get_created_at(entry_path);
                         let jpg_path_str = format!("{}\\index.jpg", entry_path.display());
                         println!("缩略图路径: {}", jpg_path_str); // 调试输出
                         // 插入或更新
@@ -182,7 +184,7 @@ impl<'a> DirectorySync<'a> {
                     }
                 } else if entry_path.is_file() {
                     // 检查是否为视频相关文件
-                    if self.is_video_or_container(entry_path) {
+                    if is_video_or_container(entry_path) {
                         let parent_path = entry_path
                             .parent()
                             .map(|p| p.to_string_lossy().to_string())
@@ -215,8 +217,8 @@ impl<'a> DirectorySync<'a> {
                         };
                         // 获取文件元数据
                         let metadata = std::fs::metadata(entry_path).ok();
-                        let size = metadata.as_ref().map(|m| self.format_size(m.len()));
-                        let created_at = metadata.and_then(|m| self.get_systemtime_created(&m));
+                        let size = metadata.as_ref().map(|m| format_size(m.len()));
+                        let created_at = metadata.and_then(|m| get_systemtime_created(&m));
 
                         // 获取缩略图路径
                         let thumbnail = get_thumbnail_path(entry_path);
@@ -254,91 +256,5 @@ impl<'a> DirectorySync<'a> {
             }
         }
         Ok(())
-    }
-
-    /// 辅助函数：检查路径是否为视频或容器
-    fn is_video_or_container(&self, path: &Path) -> bool {
-        if path.is_dir() {
-            return has_m3u8_file(path) || self.has_video_file(path);
-        }
-        if path.is_file() {
-            let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-
-            // 如果是 ts 文件，检查同一目录下是否有 m3u8 文件
-            if extension.eq_ignore_ascii_case("ts") {
-                if let Some(parent) = path.parent() {
-                    if has_m3u8_file(parent) {
-                        return false; // 当 m3u8 存在时跳过 ts 文件
-                    }
-                }
-            }
-
-            return extension.eq_ignore_ascii_case("mp4")
-                || extension.eq_ignore_ascii_case("m3u8")
-                || extension.eq_ignore_ascii_case("ts")
-                || extension.eq_ignore_ascii_case("vtt")
-                || extension.eq_ignore_ascii_case("srt")
-                || extension.eq_ignore_ascii_case("jpg")
-                || extension.eq_ignore_ascii_case("png")
-                || extension.eq_ignore_ascii_case("gif");
-        }
-        false
-    }
-
-    /// 辅助函数：检查目录是否有视频文件
-    fn has_video_file(&self, path: &Path) -> bool {
-        if !path.is_dir() {
-            return false;
-        }
-        WalkDir::new(path)
-            .max_depth(1)
-            .into_iter()
-            .filter_map(|e| e.ok())
-            .any(|e| {
-                e.path()
-                    .extension()
-                    .and_then(|ext| ext.to_str())
-                    .map(|ext| ext.eq_ignore_ascii_case("mp4"))
-                    .unwrap_or(false)
-            })
-    }
-
-    /// 辅助函数：获取创建时间
-    fn get_created_at(&self, path: &Path) -> Option<String> {
-        std::fs::metadata(path)
-            .ok()
-            .and_then(|m| self.get_systemtime_created(&m))
-    }
-
-    /// 辅助函数：格式化系统时间
-    fn get_systemtime_created(&self, metadata: &std::fs::Metadata) -> Option<String> {
-        use std::time::UNIX_EPOCH;
-        println!("metadata: {:?}", metadata);
-
-        metadata.created().ok().and_then(|time| {
-            let timestamp = time.duration_since(UNIX_EPOCH).ok()?;
-            let nanos = timestamp.as_nanos() as i64;
-            let datetime = DateTime::from_timestamp_nanos(nanos);
-            let beijing = FixedOffset::east_opt(8 * 3600).unwrap();
-            let bj = datetime.with_timezone(&beijing);
-            Some(bj.format("%Y-%m-%d %H:%M:%S").to_string())
-        })
-    }
-
-    /// 辅助函数：格式化文件大小
-    fn format_size(&self, bytes: u64) -> String {
-        const KB: u64 = 1024;
-        const MB: u64 = KB * 1024;
-        const GB: u64 = MB * 1024;
-
-        if bytes >= GB {
-            format!("{:.2} GB", (bytes as f64) / (GB as f64))
-        } else if bytes >= MB {
-            format!("{:.2} MB", (bytes as f64) / (MB as f64))
-        } else if bytes >= KB {
-            format!("{:.2} KB", (bytes as f64) / (KB as f64))
-        } else {
-            format!("{} B", bytes)
-        }
     }
 }
