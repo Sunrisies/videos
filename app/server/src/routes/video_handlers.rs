@@ -52,7 +52,7 @@ pub async fn get_video_details(
 
     if let Some(mut info) = info_opt {
         // If it's a directory, get its children
-        if info.r#type == "directory" || info.r#type == "hls_directory" {
+        if info.r#type == "directory" || info.r#type == "m3u8" {
             let children = video_dao.get_children(&full_path_str).map_err(|e| {
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,

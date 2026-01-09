@@ -20,10 +20,7 @@ impl<'a> VideoDao<'a> {
     #[allow(dead_code)]
     pub fn get_video_tree(&self) -> Result<Vec<VideoInfo>> {
         // 获取所有未删除的条目
-        let mut stmt = self
-            .db_manager
-            .conn
-            .prepare(queries::SELECT_ALL_NON_DELETED)?;
+        let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL)?;
 
         let video_iter = stmt.query_map([], |row| {
             Ok(VideoInfo {
@@ -83,14 +80,14 @@ impl<'a> VideoDao<'a> {
 
     /// 获取指定路径的子节点
     pub fn get_children(&self, parent_path: &str) -> Result<Vec<VideoInfo>> {
-        // 首先检查是否为 hls_directory
+        // 首先检查是否为 m3u8 类型
         let mut type_stmt = self.db_manager.conn.prepare(queries::SELECT_TYPE_BY_PATH)?;
         let mut type_rows = type_stmt.query([parent_path])?;
 
         if let Some(row) = type_rows.next()? {
             let parent_type: String = row.get(0)?;
-            if parent_type == "hls_directory" {
-                // 对于 hls 目录，返回空子节点（文件不单独存储）
+            if parent_type == "m3u8" {
+                // 对于 m3u8 类型，返回空子节点（文件不单独存储）
                 return Ok(Vec::new());
             }
         }

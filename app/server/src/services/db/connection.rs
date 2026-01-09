@@ -28,8 +28,7 @@ impl VideoDbManager {
                 created_at TEXT,
                 subtitle TEXT,
                 parent_path TEXT,
-                last_modified INTEGER NOT NULL DEFAULT 0,
-                is_deleted INTEGER NOT NULL DEFAULT 0
+                last_modified INTEGER NOT NULL DEFAULT 0
             )",
             [],
         )?;
@@ -40,11 +39,83 @@ impl VideoDbManager {
             "CREATE INDEX IF NOT EXISTS idx_parent ON videos(parent_path)",
             [],
         )?;
-        conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_deleted ON videos(is_deleted)",
-            [],
-        )?;
+
+        // 执行数据库迁移（处理旧版本的 is_deleted 列）
+        run_migrations(&conn)?;
 
         Ok(Self { conn })
     }
+}
+
+/// 执行数据库迁移
+fn run_migrations(conn: &Connection) -> Result<()> {
+    // 检查 videos 表是否存在 is_deleted 列
+    let mut stmt = conn.prepare("PRAGMA table_info(videos)")?;
+    let mut rows = stmt.query([])?;
+
+    let mut has_is_deleted = false;
+    while let Some(row) = rows.next()? {
+        let name: String = row.get(1)?;
+        if name == "is_deleted" {
+            has_is_deleted = true;
+            break;
+        }
+    }
+
+    // 如果存在 is_deleted 列，执行迁移
+    if has_is_deleted {
+        println!("检测到旧版本数据库，开始迁移...");
+
+        // 1. 删除可能存在的临时表（如果上次迁移失败）
+        conn.execute("DROP TABLE IF EXISTS videos_temp", [])?;
+
+        // 2. 创建临时表（不包含 is_deleted）
+        conn.execute(
+            "CREATE TABLE videos_temp (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                path TEXT UNIQUE NOT NULL,
+                type TEXT NOT NULL,
+                thumbnail TEXT,
+                duration INTEGER,
+                size TEXT,
+                resolution TEXT,
+                bitrate TEXT,
+                codec TEXT,
+                created_at TEXT,
+                subtitle TEXT,
+                parent_path TEXT,
+                last_modified INTEGER NOT NULL DEFAULT 0
+            )",
+            [],
+        )?;
+
+        // 2. 复制数据（排除 is_deleted 列）
+        conn.execute(
+            "INSERT INTO videos_temp 
+             SELECT id, name, path, type, thumbnail, duration, size, resolution, 
+                    bitrate, codec, created_at, subtitle, parent_path, last_modified
+             FROM videos",
+            [],
+        )?;
+
+        // 3. 删除原表
+        conn.execute("DROP TABLE videos", [])?;
+
+        // 4. 重命名临时表
+        conn.execute("ALTER TABLE videos_temp RENAME TO videos", [])?;
+
+        // 5. 重新创建索引
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_path ON videos(path)", [])?;
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_parent ON videos(parent_path)",
+            [],
+        )?;
+
+        println!("数据库迁移完成");
+    } else {
+        println!("数据库已是最新版本，无需迁移");
+    }
+
+    Ok(())
 }
