@@ -12,9 +12,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
-// Global database manager instance
+use crate::services::{FileWatcher, VideoDbManager};
+
+// 统一的应用状态
 pub struct AppState {
-    pub db_manager: Arc<Mutex<services::VideoDbManager>>,
+    pub db_manager: Arc<Mutex<VideoDbManager>>,
+    pub file_watcher: Arc<Mutex<FileWatcher>>,
 }
 
 #[tokio::main]
@@ -23,8 +26,7 @@ async fn main() {
     services::initialize_thumbnails();
 
     // 初始化数据库
-    let db_manager =
-        services::VideoDbManager::new("videos.db").expect("Failed to initialize database");
+    let db_manager = VideoDbManager::new("videos.db").expect("Failed to initialize database");
 
     // 从 public 目录中初始化数据库
     let sync = services::DirectorySync::new(&db_manager);
@@ -38,7 +40,17 @@ async fn main() {
     }
 
     // 创建共享状态
-    let shared_state = Arc::new(Mutex::new(db_manager));
+    let db_manager_arc = Arc::new(Mutex::new(db_manager));
+
+    // 创建文件监听器
+    let file_watcher = FileWatcher::new(db_manager_arc.clone());
+    let file_watcher_arc = Arc::new(Mutex::new(file_watcher));
+
+    // 创建统一的应用状态
+    let app_state = Arc::new(AppState {
+        db_manager: db_manager_arc,
+        file_watcher: file_watcher_arc,
+    });
 
     // 创建 CORS 中间件 - 允许所有来源
     let cors = CorsLayer::new()
@@ -57,20 +69,34 @@ async fn main() {
         .route("/api/videos", get(routes::list_videos))
         // 获取指定路径的详细信息（包括子文件）
         .route("/api/videos/*path", get(routes::get_video_details))
-        // 同步数据库
+        // 手动同步数据库
         .route("/api/sync", get(routes::sync_videos))
+        // 文件监听器控制端点
+        .route("/api/watcher/start", get(routes::start_watcher))
+        .route("/api/watcher/stop", get(routes::stop_watcher))
+        .route("/api/watcher/status", get(routes::get_watcher_status))
         // 静态文件服务，public 目录下的文件可以通过 /public/... 访问
         .nest_service("/public", ServeDir::new("public"))
         // 静态文件服务，thumbnails 目录下的文件可以通过 /thumbnails/... 访问
         .nest_service("/thumbnails", ServeDir::new("thumbnails"))
-        .with_state(shared_state)
+        .with_state(app_state)
         .layer(cors);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
     println!("listening on {}", addr);
     println!("CORS enabled - allowing all origins");
     println!("Thumbnails directory initialized");
     println!("Database initialized");
+    println!("");
+    println!("Available API endpoints:");
+    println!("  GET  /api/videos              - List all videos");
+    println!("  GET  /api/videos/[path]       - Get video details");
+    println!("  GET  /api/sync                - Manual database sync");
+    println!("  GET  /api/watcher/start       - Start file watcher");
+    println!("  GET  /api/watcher/stop        - Stop file watcher");
+    println!("  GET  /api/watcher/status      - Get watcher status");
+    println!("");
+    println!("File watcher is NOT running by default. Use /api/watcher/start to enable auto-sync.");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();
