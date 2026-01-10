@@ -255,15 +255,14 @@ impl<'a> DirectorySync<'a> {
 
         let created_at = get_created_at(path).unwrap_or_default();
         let duration = get_m3u8_duration(path);
-        let isss = get_ensure_thumbnail(path);
-        println!("目录处理完成: {:?}----{:?}", isss, path);
+        let thumbnail = get_ensure_thumbnail(path);
         Ok(FileInfo {
             name,
             path: path_str.to_string_lossy().to_string(),
             created_at,
             file_type: video_types::M3U8.to_string(),
             parent_path,
-            thumbnail: Some(format!("{}\\index.jpg", path.display())),
+            thumbnail,
             size: None,
             subtitle: None,
             duration,
@@ -272,45 +271,46 @@ impl<'a> DirectorySync<'a> {
 
     /// 处理普通文件或目录
     fn process_file_or_directory(&self, path: &Path, _root: &Path) -> Result<Option<FileInfo>> {
-        if path.is_dir() {
-            // 对于目录，检查是否包含视频内容
-            if !has_video_file(path) {
-                return Ok(None);
-            }
+        // if path.is_dir() {
+        // // 对于目录，检查是否包含视频内容
+        // if !has_video_file(path) {
+        //     return Ok(None);
+        // }
 
-            let parent_path = path
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
+        // let parent_path = path
+        //     .parent()
+        //     .map(|p| p.to_string_lossy().to_string())
+        //     .unwrap_or_default();
 
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
+        // let name = path
+        //     .file_name()
+        //     .and_then(|n| n.to_str())
+        //     .unwrap_or("")
+        //     .to_string();
 
-            let created_at = get_created_at(path).unwrap_or_default();
-            let r#type = if has_m3u8_file(path) {
-                video_types::M3U8
-            } else {
-                video_types::DIRECTORY
-            };
-            let duration = get_m3u8_duration(path);
+        // let created_at = get_created_at(path).unwrap_or_default();
+        // let r#type = if has_m3u8_file(path) {
+        //     video_types::M3U8
+        // } else {
+        //     video_types::DIRECTORY
+        // };
+        // let duration = get_m3u8_duration(path);
 
-            let thumbnail = Some(format!("{}\\index.jpg", path.display()));
+        // // let thumbnail = Some(format!("{}\\index.jpg", path.display()));
 
-            Ok(Some(FileInfo {
-                name,
-                path: path.to_string_lossy().to_string(),
-                created_at,
-                file_type: r#type.to_string(),
-                parent_path,
-                thumbnail,
-                size: None,
-                subtitle: None,
-                duration,
-            }))
-        } else if path.is_file() {
+        // Ok(Some(FileInfo {
+        //     name,
+        //     path: path.to_string_lossy().to_string(),
+        //     created_at,
+        //     file_type: r#type.to_string(),
+        //     parent_path,
+        //     thumbnail,
+        //     size: None,
+        //     subtitle: None,
+        //     duration,
+        // }))
+        // } else
+        if path.is_file() {
             // 获取文件扩展名
             let extension = path
                 .extension()
