@@ -255,7 +255,8 @@ impl<'a> DirectorySync<'a> {
 
         let created_at = get_created_at(path).unwrap_or_default();
         let duration = get_m3u8_duration(path);
-
+        let isss = get_ensure_thumbnail(path);
+        println!("目录处理完成: {:?}----{:?}", isss, path);
         Ok(FileInfo {
             name,
             path: path_str.to_string_lossy().to_string(),
@@ -295,6 +296,7 @@ impl<'a> DirectorySync<'a> {
                 video_types::DIRECTORY
             };
             let duration = get_m3u8_duration(path);
+
             let thumbnail = Some(format!("{}\\index.jpg", path.display()));
 
             Ok(Some(FileInfo {

@@ -2,6 +2,8 @@ use std::path::Path as StdPath;
 use std::process::Command;
 use walkdir::WalkDir;
 
+use crate::utils::check_m3u8_file;
+
 /// 初始化缩略图目录
 pub fn initialize_thumbnails() {
     let thumbnails_path = StdPath::new("thumbnails");
@@ -89,54 +91,44 @@ pub fn generate_thumbnails_for_directory(public_path: &StdPath, thumbnails_path:
             }
         } else if path.is_dir() {
             // 处理目录 - 检查是否是 m3u8 目录
-            let index_m3u8_path = path.join("index.m3u8");
+            let index_m3u8_path = check_m3u8_file(&path).unwrap_or_default();
             if index_m3u8_path.exists() {
                 println!("Found m3u8 directory: {:?}", path);
 
                 // 获取相对路径
                 let relative_path = path.strip_prefix(public_path).unwrap();
-                let thumbnail_path = thumbnails_path.join(relative_path).join("index.jpg");
-
-                // 创建缩略图所在的子目录
-                if let Some(parent) = thumbnail_path.parent() {
-                    if !parent.exists() {
-                        if let Err(e) = std::fs::create_dir_all(parent) {
-                            println!("Failed to create directory {}: {}", parent.display(), e);
-                            continue;
-                        }
-                    }
-                }
 
                 // 如果缩略图已存在，跳过
-                if thumbnail_path.exists() {
-                    println!("Thumbnail already exists: {:?}", thumbnail_path);
+                if relative_path.exists() {
+                    println!("当前缩略图已存在: {:?}", relative_path);
                     continue;
                 }
+                let thumbnail_path = thumbnails_path.join(relative_path).with_extension("jpg");
 
-                // 读取 index.m3u8 文件内容
+                // 读取 m3u8 文件内容
                 if let Ok(content) = std::fs::read_to_string(&index_m3u8_path) {
                     // 查找第一个 .ts 视频片段
                     if let Some(first_ts_line) = content.lines().find(|line| line.ends_with(".ts"))
                     {
                         let ts_path = path.join(first_ts_line.trim());
-                        println!("Generating thumbnail for m3u8 segment: {:?}", ts_path);
+                        println!("为m3u8片段生成缩略图: {:?}", ts_path);
                         if ts_path.exists() {
-                            println!("Generating thumbnail for m3u8 segment: {:?}", ts_path);
+                            println!("找到对应的文件: {:?}", ts_path);
                             generate_video_thumbnail(&ts_path, &thumbnail_path);
                         } else {
-                            println!("TS segment not found: {:?}", ts_path);
+                            println!("TS 文件没有找到: {:?}", ts_path);
                             // 如果找不到 TS 片段，生成默认图标
-                            generate_default_thumbnail(&thumbnail_path, "media");
+                            generate_default_thumbnail(&relative_path, "media");
                         }
                     } else {
                         println!("No TS segments found in {:?}", index_m3u8_path);
                         // 如果没有找到 TS 片段，生成默认图标
-                        generate_default_thumbnail(&thumbnail_path, "media");
+                        generate_default_thumbnail(&relative_path, "media");
                     }
                 } else {
                     println!("Failed to read m3u8 file: {:?}", index_m3u8_path);
                     // 如果无法读取 m3u8 文件，生成默认图标
-                    generate_default_thumbnail(&thumbnail_path, "media");
+                    generate_default_thumbnail(&relative_path, "media");
                 }
             }
         }
@@ -149,7 +141,7 @@ pub fn generate_video_thumbnail(video_path: &StdPath, thumbnail_path: &StdPath) 
     // 命令: ffmpeg -i input.mp4 -ss 00:00:01 -vframes 1 -q:v 2 output.jpg
     let output = thumbnail_path.to_string_lossy().to_string();
     let input = video_path.to_string_lossy().to_string();
-
+    println!("当前视频文件: {},输出文件{}", input, output);
     match Command::new("ffmpeg")
         .args(&[
             "-i", &input, "-ss", "00:00:01", "-vframes", "1", "-q:v", "2",

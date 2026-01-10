@@ -17,7 +17,7 @@ pub fn get_ensure_thumbnail(file_path: &Path) -> Option<String> {
 
     // 构建缩略图路径
     let thumbnail_path = thumbnails_path.join(relative_path).with_extension("jpg");
-
+    println!("Thumbnail path: {:?}", thumbnail_path);
     // 如果缩略图不存在，则生成
     if !thumbnail_path.exists() {
         // 创建缩略图所在的子目录
