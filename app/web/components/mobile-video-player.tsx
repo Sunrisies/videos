@@ -101,7 +101,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             const pathParts = videoUrl.split("\\")
             const filename = pathParts[pathParts.length - 1]
             // 使用相对路径访问public目录下的文件
-            videoUrl = `http://192.168.1.6:3000/public/${filename}`
+            videoUrl = `http://192.168.10.4:3000/public/${filename}`
           }
 
           // 如果是MP4文件，直接使用提供的路径
@@ -262,8 +262,8 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     return (
       <div className="relative w-full aspect-video bg-black rounded-lg flex items-center justify-center">
         <div className="text-center p-6">
-          <p className="text-white text-lg mb-4">{ error }</p>
-          <Button onClick={ () => window.location.reload() } variant="secondary">
+          <p className="text-white text-lg mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()} variant="secondary">
             重新加载
           </Button>
         </div>
@@ -274,84 +274,85 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
   return (
     <div
       className="relative w-full aspect-video bg-black rounded-lg overflow-hidden touch-none"
-      onTouchStart={ resetControlsTimeout }
-      onTouchMove={ resetControlsTimeout }
-      onClick={ resetControlsTimeout }
+      onTouchStart={resetControlsTimeout}
+      onTouchMove={resetControlsTimeout}
+      onClick={resetControlsTimeout}
     >
       <video
-        ref={ videoRef }
+        ref={videoRef}
         className="w-full h-full"
         playsInline
         preload="metadata"
-        poster={ media.thumbnail }
-        onClick={ togglePlay }
+        poster={`http://192.168.10.4:3000\\${media.thumbnail}`}
+        onClick={togglePlay}
         crossOrigin="anonymous"
       >
         <source type="video/mp4" />
         您的浏览器不支持视频播放
       </video>
 
-      { isLoading && (
+      {isLoading && (
         <div className="absolute inset-0 flex items-center justify-center bg-black/50">
           <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" />
         </div>
-      ) }
+      )}
 
       <div
-        className={ `absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"
-          }` }
+        className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"
+          }`}
       >
-        {/* 顶部信息栏 */ }
+        {/* 顶部信息栏 */}
         <div className="absolute top-0 left-0 right-0 p-4">
-          <h3 className="text-white font-medium text-lg truncate">{ media.name }</h3>
-          { media.resolution && <p className="text-white/70 text-sm mt-1">{ media.resolution }</p> }
+          <h3 className="text-white font-medium text-lg truncate">{media.name}</h3>
+
+          {media.resolution && <p className="text-white/70 text-sm mt-1">{media.resolution}</p>}
         </div>
 
-        {/* 中央播放按钮 */ }
-        { !isPlaying && !isLoading && (
+        {/* 中央播放按钮 */}
+        {!isPlaying && !isLoading && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Button size="lg" onClick={ togglePlay } className="w-20 h-20 rounded-full bg-white/90 hover:bg-white">
+            <Button size="lg" onClick={togglePlay} className="w-20 h-20 rounded-full bg-white/90 hover:bg-white">
               <Play className="w-10 h-10 text-black fill-black ml-1" />
             </Button>
           </div>
-        ) }
+        )}
 
-        {/* 底部控制栏 */ }
+        {/* 底部控制栏 */}
         <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3">
-          {/* 进度条 */ }
+          {/* 进度条 */}
           <div className="flex items-center gap-3">
-            <span className="text-white text-sm font-medium min-w-[40px]">{ formatTime(currentTime) }</span>
+            <span className="text-white text-sm font-medium min-w-[40px]">{currentTime}</span>
             <input
               type="range"
               min="0"
-              max={ duration || 0 }
-              value={ currentTime }
-              onChange={ handleSeek }
+              max={duration || 0}
+              value={currentTime}
+              onChange={handleSeek}
               className="flex-1 h-2 bg-white/30 rounded-full appearance-none cursor-pointer
                 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
                 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
                 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 
                 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
             />
-            <span className="text-white text-sm font-medium min-w-[40px] text-right">{ formatTime(duration) }</span>
+            <span className="text-white text-sm font-medium min-w-[40px] text-right">{formatTime(duration)}</span>
           </div>
 
-          {/* 控制按钮 */ }
+          {/* 控制按钮 */}
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={ togglePlay }
+                onClick={togglePlay}
                 className="text-white hover:bg-white/20 h-12 w-12"
               >
-                { isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" /> }
+                {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
               </Button>
 
               <Button
                 size="icon"
                 variant="ghost"
-                onClick={ handleRestart }
+                onClick={handleRestart}
                 className="text-white hover:bg-white/20 h-12 w-12"
               >
                 <RotateCcw className="w-5 h-5" />
@@ -361,18 +362,18 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
                 <Button
                   size="icon"
                   variant="ghost"
-                  onClick={ toggleMute }
+                  onClick={toggleMute}
                   className="text-white hover:bg-white/20 h-12 w-12"
                 >
-                  { isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" /> }
+                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
                 </Button>
                 <input
                   type="range"
                   min="0"
                   max="1"
                   step="0.1"
-                  value={ isMuted ? 0 : volume }
-                  onChange={ handleVolumeChange }
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
                   className="w-20 h-1 bg-white/30 rounded-full appearance-none cursor-pointer
                     [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
                     [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
@@ -385,7 +386,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             <Button
               size="icon"
               variant="ghost"
-              onClick={ toggleFullscreen }
+              onClick={toggleFullscreen}
               className="text-white hover:bg-white/20 h-12 w-12"
             >
               <Maximize className="w-5 h-5" />

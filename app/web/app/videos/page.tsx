@@ -22,7 +22,7 @@ interface ApiVideoItem {
 }
 
 const getVideos = async (): Promise<MediaItem[]> => {
-  const response = await fetch("http://192.168.1.6:3000/api/videos")
+  const response = await fetch("http://192.168.10.4:3000/api/videos")
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
