@@ -1,13 +1,11 @@
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::{queries, video_types};
-use crate::services::filesystem::{
-    generate_default_thumbnail, generate_image_thumbnail, generate_video_thumbnail,
-};
+
 use crate::utils::{
     check_m3u8_file, format_size, get_created_at, get_ensure_thumbnail, get_m3u8_duration,
-    get_systemtime_created, get_video_duration, has_m3u8_file, has_video_file,
-    is_video_or_container,
+    get_systemtime_created, get_video_duration, has_m3u8_file, is_video_or_container,
 };
+use log::info;
 use rusqlite::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -42,27 +40,27 @@ impl<'a> DirectorySync<'a> {
 
     /// 从目录初始化数据库（双向同步）
     pub fn initialize_from_directory(&self, root_path: &str, force: bool) -> Result<()> {
-        println!("=== 开始数据库双向同步: {} ===", root_path);
+        info!("=== 开始数据库双向同步: {} ===", root_path);
 
         // 检查数据库是否已初始化
         let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_COUNT)?;
         let count: i64 = stmt.query_row([], |row| row.get(0))?;
 
         if count > 0 && !force {
-            println!("数据库已包含 {} 条记录，执行增量同步...", count);
+            info!("数据库已包含 {} 条记录，执行增量同步...", count);
             return self.bidirectional_sync(root_path);
         }
 
         // 如果 force 为 true 或数据库为空，则清除并重新初始化
         if force {
-            println!("请求强制重新初始化，清除现有数据...");
+            info!("请求强制重新初始化，清除现有数据...");
             self.db_manager.conn.execute("DELETE FROM videos", [])?;
         }
 
         // 执行完整的双向同步
         self.bidirectional_sync(root_path)?;
 
-        println!("=== 数据库双向同步完成 ===");
+        info!("=== 数据库双向同步完成 ===");
         Ok(())
     }
 
@@ -81,11 +79,11 @@ impl<'a> DirectorySync<'a> {
 
         // 1. 获取数据库中所有未删除的记录
         let db_records = self.get_all_db_records()?;
-        println!("数据库中未删除记录数: {}", db_records.len());
+        info!("数据库中未删除记录数: {}", db_records.len());
 
         // 2. 扫描文件系统，构建文件映射
         let (fs_files, scan_errors) = self.scan_filesystem(root_path)?;
-        println!(
+        info!(
             "文件系统扫描到文件数: {}, 错误数: {}",
             fs_files.len(),
             scan_errors.len()
@@ -93,7 +91,7 @@ impl<'a> DirectorySync<'a> {
 
         // 记录扫描错误
         for error in &scan_errors {
-            println!("扫描错误: {}", error);
+            info!("扫描错误: {}", error);
         }
 
         // 3. 处理新增和变更的文件（文件系统 -> 数据库）
@@ -107,7 +105,7 @@ impl<'a> DirectorySync<'a> {
                     // 文件在数据库中不存在，作为新记录插入
                     self.insert_new_record(file_info, &current_time)?;
                     new_count += 1;
-                    println!("新增文件: {}", path);
+                    info!("新增文件: {}", path);
                 }
                 Some(db_record) => {
                     // 文件在数据库中存在，检查是否需要更新
@@ -116,7 +114,7 @@ impl<'a> DirectorySync<'a> {
                         self.hard_delete_record(path)?;
                         self.insert_new_record(file_info, &current_time)?;
                         changed_count += 1;
-                        println!("变更文件: {}", path);
+                        info!("变更文件: {}", path);
                     } else {
                         // 数据完全一致，跳过
                         skipped_count += 1;
@@ -132,16 +130,16 @@ impl<'a> DirectorySync<'a> {
                 // 数据库记录对应的文件已不存在，硬删除
                 self.hard_delete_record(path)?;
                 deleted_count += 1;
-                println!("删除文件: {}", path);
+                info!("删除文件: {}", path);
             }
         }
 
-        println!("=== 同步统计 ===");
-        println!("新增文件: {}", new_count);
-        println!("变更文件: {}", changed_count);
-        println!("删除文件: {}", deleted_count);
-        println!("跳过文件: {}", skipped_count);
-        println!("错误数量: {}", scan_errors.len());
+        info!("=== 同步统计 ===");
+        info!("新增文件: {}", new_count);
+        info!("变更文件: {}", changed_count);
+        info!("删除文件: {}", deleted_count);
+        info!("跳过文件: {}", skipped_count);
+        info!("错误数量: {}", scan_errors.len());
 
         Ok(())
     }
@@ -207,10 +205,10 @@ impl<'a> DirectorySync<'a> {
 
             // 处理 m3u8 目录特殊情况
             if path.is_dir() && has_m3u8_file(path) {
-                println!("处理 m3u8 目录: {:?}", path);
+                info!("处理 m3u8 目录: {:?}", path);
                 match self.process_m3u8_directory(path, &root) {
                     Ok(file_info) => {
-                        println!("m3u8 目录处理完成: {:?}", file_info);
+                        info!("m3u8 目录处理完成: {:?}", file_info);
                         files.insert(file_info.path.clone(), file_info);
                     }
                     Err(e) => {
@@ -244,7 +242,7 @@ impl<'a> DirectorySync<'a> {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         let path_str = check_m3u8_file(&path).unwrap_or_default();
-        println!("m3u8 目录处理完成:------ {:?}", path_str);
+        info!("m3u8 目录处理完成:------ {:?}", path_str);
 
         // 使用目录名称作为文件名
         let name = path
@@ -271,45 +269,6 @@ impl<'a> DirectorySync<'a> {
 
     /// 处理普通文件或目录
     fn process_file_or_directory(&self, path: &Path, _root: &Path) -> Result<Option<FileInfo>> {
-        // if path.is_dir() {
-        // // 对于目录，检查是否包含视频内容
-        // if !has_video_file(path) {
-        //     return Ok(None);
-        // }
-
-        // let parent_path = path
-        //     .parent()
-        //     .map(|p| p.to_string_lossy().to_string())
-        //     .unwrap_or_default();
-
-        // let name = path
-        //     .file_name()
-        //     .and_then(|n| n.to_str())
-        //     .unwrap_or("")
-        //     .to_string();
-
-        // let created_at = get_created_at(path).unwrap_or_default();
-        // let r#type = if has_m3u8_file(path) {
-        //     video_types::M3U8
-        // } else {
-        //     video_types::DIRECTORY
-        // };
-        // let duration = get_m3u8_duration(path);
-
-        // // let thumbnail = Some(format!("{}\\index.jpg", path.display()));
-
-        // Ok(Some(FileInfo {
-        //     name,
-        //     path: path.to_string_lossy().to_string(),
-        //     created_at,
-        //     file_type: r#type.to_string(),
-        //     parent_path,
-        //     thumbnail,
-        //     size: None,
-        //     subtitle: None,
-        //     duration,
-        // }))
-        // } else
         if path.is_file() {
             // 获取文件扩展名
             let extension = path

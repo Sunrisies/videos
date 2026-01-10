@@ -8,11 +8,15 @@ use axum::{
     http::{HeaderName, HeaderValue},
     routing::get,
 };
+use log::info;
 use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
-use crate::services::{FileWatcher, VideoDbManager};
+use crate::{
+    services::{FileWatcher, VideoDbManager},
+    utils::init_logger,
+};
 
 // 统一的应用状态
 pub struct AppState {
@@ -22,8 +26,9 @@ pub struct AppState {
 
 #[tokio::main]
 async fn main() {
-    // 初始化缩略图目录
-    services::initialize_thumbnails();
+    init_logger(); // 初始化日志
+
+    services::initialize_thumbnails(); // 初始化缩略图目录
 
     // 初始化数据库
     let db_manager = VideoDbManager::new("videos.db").expect("Failed to initialize database");
@@ -31,12 +36,9 @@ async fn main() {
     // 从 public 目录中初始化数据库
     let sync = services::DirectorySync::new(&db_manager);
     if let Err(e) = sync.initialize_from_directory("public", false) {
-        println!(
-            "Warning: Failed to initialize database from public directory: {}",
-            e
-        );
+        println!("警告：无法从公共目录初始化数据库: {}", e);
     } else {
-        println!("Database initialized successfully");
+        println!("数据库初始化成功");
     }
 
     // 创建共享状态
@@ -83,20 +85,20 @@ async fn main() {
         .layer(cors);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
-    println!("listening on {}", addr);
-    println!("CORS enabled - allowing all origins");
-    println!("Thumbnails directory initialized");
-    println!("Database initialized");
-    println!("");
-    println!("Available API endpoints:");
-    println!("  GET  /api/videos              - List all videos");
-    println!("  GET  /api/videos/[path]       - Get video details");
-    println!("  GET  /api/sync                - Manual database sync");
-    println!("  GET  /api/watcher/start       - Start file watcher");
-    println!("  GET  /api/watcher/stop        - Stop file watcher");
-    println!("  GET  /api/watcher/status      - Get watcher status");
-    println!("");
-    println!("File watcher is NOT running by default. Use /api/watcher/start to enable auto-sync.");
+    info!("listening on {}", addr);
+    info!("CORS enabled - allowing all origins");
+    info!("Thumbnails directory initialized");
+    info!("Database initialized");
+    info!("");
+    info!("Available API endpoints:");
+    info!("  GET  /api/videos              - List all videos");
+    info!("  GET  /api/videos/[path]       - Get video details");
+    info!("  GET  /api/sync                - Manual database sync");
+    info!("  GET  /api/watcher/start       - Start file watcher");
+    info!("  GET  /api/watcher/stop        - Stop file watcher");
+    info!("  GET  /api/watcher/status      - Get watcher status");
+    info!("");
+    info!("File watcher is NOT running by default. Use /api/watcher/start to enable auto-sync.");
 
     let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
     axum::serve(listener, app).await.unwrap();

@@ -25,7 +25,6 @@ pub fn format_size(bytes: u64) -> String {
 /// 辅助函数：格式化系统时间
 pub fn get_systemtime_created(metadata: &std::fs::Metadata) -> Option<String> {
     use std::time::UNIX_EPOCH;
-    println!("metadata: {:?}", metadata);
 
     metadata.created().ok().and_then(|time| {
         let timestamp = time.duration_since(UNIX_EPOCH).ok()?;
