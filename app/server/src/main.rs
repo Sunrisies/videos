@@ -82,7 +82,7 @@ async fn main() {
         .with_state(app_state)
         .layer(cors);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3001));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
     println!("listening on {}", addr);
     println!("CORS enabled - allowing all origins");
     println!("Thumbnails directory initialized");

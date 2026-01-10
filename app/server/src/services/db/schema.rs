@@ -15,27 +15,28 @@ pub mod video_types {
 
 /// SQL 查询语句常量
 pub mod queries {
+    /// 插入新视频记录
     pub const INSERT_NEW: &str = "INSERT INTO videos
         (name, path, type, parent_path, thumbnail, size, created_at, subtitle, last_modified, duration)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
-
+    /// 获取视频总数
     pub const SELECT_ALL_COUNT: &str = "SELECT COUNT(*) FROM videos";
-
+    /// 获取所有视频记录，按类型降序、名称升序排序
     pub const SELECT_ALL: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, parent_path
         FROM videos
         ORDER BY type DESC, name ASC";
-
+    /// 获取所有视频记录的完整信息（不排序）
     pub const SELECT_ALL_FULL: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, parent_path
         FROM videos";
-
+    /// 根据父路径获取视频记录，按类型降序、名称升序排序
     pub const SELECT_BY_PARENT: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle
         FROM videos
         WHERE parent_path = ?
         ORDER BY type DESC, name ASC";
-
+    /// 根据路径获取特定视频记录
     pub const SELECT_BY_PATH: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle
         FROM videos
         WHERE path = ?";
-
+    /// 根据路径获取视频类型
     pub const SELECT_TYPE_BY_PATH: &str = "SELECT type FROM videos WHERE path = ?";
 }

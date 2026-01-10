@@ -10,7 +10,7 @@ pub struct VideoInfo {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub thumbnail: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration: Option<u64>,
+    pub duration: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub size: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
