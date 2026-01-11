@@ -22,8 +22,19 @@ export default function VideoPlayPage() {
     }
   }, [router])
 
+  // 页面卸载时确保设置返回标记
+  useEffect(() => {
+    return () => {
+      // 在组件卸载时设置返回标记，确保移动端也能正确处理
+      sessionStorage.setItem("returningFromPlay", "true")
+    }
+  }, [])
+
   const handleBack = () => {
-    router.back()
+    // 先设置标记，再导航
+    sessionStorage.setItem("returningFromPlay", "true")
+    // 使用 replace 而不是 push，避免在播放页面历史记录堆积
+    router.replace("/videos")
   }
 
   const handleShare = () => {
@@ -53,7 +64,7 @@ export default function VideoPlayPage() {
           <Button
             size="icon"
             variant="ghost"
-            onClick={ handleBack }
+            onClick={handleBack}
             className="text-white hover:bg-white/10 active:bg-white/20 transition-colors h-10 w-10"
           >
             <ChevronLeft className="w-6 h-6" />
@@ -63,7 +74,7 @@ export default function VideoPlayPage() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={ handleShare }
+              onClick={handleShare}
               className="text-white hover:bg-white/10 active:bg-white/20 transition-colors h-10 w-10"
             >
               <Share2 className="w-5 h-5" />
@@ -81,31 +92,31 @@ export default function VideoPlayPage() {
 
       <div className="flex-1 flex items-center justify-center  ">
         <div className="w-full max-w-3xl">
-          <MobileVideoPlayer media={ video } autoPlay />
+          <MobileVideoPlayer media={video} autoPlay />
         </div>
       </div>
 
       <div className="bg-gradient-to-t from-background to-muted/20 border-t overflow-y-auto max-h-[55vh]">
         <div className="px-4 py-6 space-y-6">
           <div className="space-y-3">
-            <h1 className="text-2xl font-bold leading-tight text-balance">{ video.name }</h1>
+            <h1 className="text-2xl font-bold leading-tight text-balance">{video.name}</h1>
             <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              { video.resolution && (
+              {video.resolution && (
                 <span className="px-2.5 py-1 bg-primary/10 text-primary rounded-full font-medium">
-                  { video.resolution }
+                  {video.resolution}
                 </span>
-              ) }
-              { video.size && <span className="px-2.5 py-1 bg-muted rounded-full">{ video.size }</span> }
-              { video.bitrate && <span className="px-2.5 py-1 bg-muted rounded-full">{ video.bitrate }</span> }
+              )}
+              {video.size && <span className="px-2.5 py-1 bg-muted rounded-full">{video.size}</span>}
+              {video.bitrate && <span className="px-2.5 py-1 bg-muted rounded-full">{video.bitrate}</span>}
             </div>
           </div>
 
-          { video.createdAt && (
+          {video.createdAt && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Clock className="w-4 h-4" />
-              <span>上传时间：{ video.createdAt }</span>
+              <span>上传时间：{video.createdAt}</span>
             </div>
-          ) }
+          )}
 
           <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
             <div className="px-4 py-3 border-b bg-muted/30">
@@ -121,29 +132,29 @@ export default function VideoPlayPage() {
                   <span className="text-sm">格式</span>
                 </div>
                 <span className="font-semibold text-sm bg-primary/10 text-primary px-3 py-1 rounded-full">
-                  { video.type.toUpperCase() }
+                  {video.type.toUpperCase()}
                 </span>
               </div>
-              { video.duration && (
+              {video.duration && (
                 <div className="px-4 py-3 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <Clock className="w-4 h-4" />
                     <span className="text-sm">时长</span>
                   </div>
                   <span className="font-medium text-sm">
-                    { Math.floor(video.duration / 60) }:{ (video.duration % 60).toString().padStart(2, "0") }
+                    {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, "0")}
                   </span>
                 </div>
-              ) }
-              { video.size && (
+              )}
+              {video.size && (
                 <div className="px-4 py-3 flex items-center justify-between">
                   <div className="flex items-center gap-2 text-muted-foreground">
                     <HardDrive className="w-4 h-4" />
                     <span className="text-sm">文件大小</span>
                   </div>
-                  <span className="font-medium text-sm">{ video.size }</span>
+                  <span className="font-medium text-sm">{video.size}</span>
                 </div>
-              ) }
+              )}
             </div>
           </div>
 

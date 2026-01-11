@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Search, Grid3x3, List } from "lucide-react"
 import type { MediaItem } from "@/types/media"
+import { useScrollPosition } from "@/hooks/useScrollPosition"
 
 // API返回的视频数据接口
 interface ApiVideoItem {
@@ -56,6 +57,9 @@ export default function VideosPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
+  // 使用自定义Hook来保存和恢复滚动位置
+  const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
+
   useEffect(() => {
     const fetchVideos = async () => {
       try {
@@ -74,6 +78,54 @@ export default function VideosPage() {
     fetchVideos()
   }, [])
 
+  // 单独处理滚动位置恢复 - 针对移动端优化
+  useEffect(() => {
+    if (!loading && videos.length > 0) {
+      // 检查是否从播放页面返回
+      const isReturningFromPlay = sessionStorage.getItem("returningFromPlay") === "true"
+
+      if (isReturningFromPlay) {
+        // 清除标记
+        sessionStorage.removeItem("returningFromPlay")
+
+        // 使用多种方式确保滚动位置恢复
+        const restoreScroll = () => {
+          const savedPosition = sessionStorage.getItem("videosPageScrollPosition");
+          if (savedPosition) {
+            const position = parseInt(savedPosition, 10);
+
+            // 立即设置滚动位置
+            window.scrollTo(0, position);
+
+            // 移动端可能需要多次尝试
+            setTimeout(() => {
+              window.scrollTo(0, position);
+            }, 50);
+
+            setTimeout(() => {
+              window.scrollTo(0, position);
+            }, 100);
+
+            setTimeout(() => {
+              window.scrollTo(0, position);
+              // 清除保存的位置
+              sessionStorage.removeItem("videosPageScrollPosition");
+            }, 200);
+          }
+        };
+
+        // 等待页面完全渲染
+        if (document.readyState === 'complete') {
+          restoreScroll();
+        } else {
+          window.addEventListener('load', restoreScroll, { once: true });
+          // 额外的延迟作为后备
+          setTimeout(restoreScroll, 300);
+        }
+      }
+    }
+  }, [loading, videos])
+
   const filteredVideos = videos.filter((video) => {
     const matchesSearch = video.name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesType = filterType === "all" || video.type === filterType
@@ -81,6 +133,10 @@ export default function VideosPage() {
   })
 
   const handleVideoClick = (video: MediaItem) => {
+    // 保存当前滚动位置到sessionStorage
+    const scrollPosition = window.scrollY;
+    sessionStorage.setItem("videosPageScrollPosition", scrollPosition.toString());
+
     // 将视频数据存储到 sessionStorage
     sessionStorage.setItem("currentVideo", JSON.stringify(video))
     router.push("/videos/play")

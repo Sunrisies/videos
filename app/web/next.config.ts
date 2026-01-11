@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // 保持滚动位置
+  // experimental: {
+  //   scrollRestoration: true,
+  // },
   images: {
     remotePatterns: [
       {
