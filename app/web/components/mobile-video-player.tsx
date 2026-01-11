@@ -101,7 +101,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             const pathParts = videoUrl.split("\\")
             const filename = pathParts[pathParts.length - 1]
             // 使用相对路径访问public目录下的文件
-            videoUrl = `http://192.168.10.4:3000/public/${filename}`
+            videoUrl = `http://192.168.31.236:3003/public/${filename}`
           }
 
           // 如果是MP4文件，直接使用提供的路径
@@ -185,7 +185,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     if (isPlaying) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false)
-      }, 3000)
+      }, 3003)
     }
   }
 
@@ -283,7 +283,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
         className="w-full h-full"
         playsInline
         preload="metadata"
-        poster={`http://192.168.10.4:3000\\${media.thumbnail}`}
+        poster={`http://192.168.31.236:3003\\${media.thumbnail}`}
         onClick={togglePlay}
         crossOrigin="anonymous"
       >

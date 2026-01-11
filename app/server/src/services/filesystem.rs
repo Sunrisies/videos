@@ -24,6 +24,26 @@ pub fn initialize_thumbnails() {
     }
 }
 
+/// 使用自定义数据源目录初始化缩略图目录
+pub fn initialize_thumbnails_with_source(source_dir: &str) {
+    let thumbnails_path = StdPath::new("thumbnails");
+
+    // 创建 thumbnails 目录
+    if !thumbnails_path.exists() {
+        std::fs::create_dir(thumbnails_path).expect("Failed to create thumbnails directory");
+        println!("Created thumbnails directory");
+    }
+
+    // 扫描指定数据源目录并生成缩略图（递归所有子目录）
+    let source_path = StdPath::new(source_dir);
+    if source_path.exists() {
+        println!("Scanning source directory {} recursively for files to generate thumbnails...", source_dir);
+        generate_thumbnails_for_directory(source_path, thumbnails_path);
+    } else {
+        println!("Warning: source directory {} does not exist", source_dir);
+    }
+}
+
 /// 为目录及其所有子目录中的文件生成缩略图
 
 pub fn generate_thumbnails_for_directory(public_path: &StdPath, thumbnails_path: &StdPath) {

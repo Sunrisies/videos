@@ -22,7 +22,7 @@ interface ApiVideoItem {
 }
 
 const getVideos = async (): Promise<MediaItem[]> => {
-  const response = await fetch("http://192.168.10.4:3000/api/videos")
+  const response = await fetch("http://192.168.31.236:3003/api/videos")
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
@@ -88,51 +88,51 @@ export default function VideosPage() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* 顶部导航栏 */ }
+      {/* 顶部导航栏 */}
       <header className="sticky top-0 z-10 bg-card/95 backdrop-blur-sm border-b">
         <div className="container mx-auto px-4 py-4">
           <h1 className="text-2xl font-bold mb-3">视频库</h1>
 
-          {/* 搜索栏 */ }
+          {/* 搜索栏 */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               type="text"
               placeholder="搜索视频..."
-              value={ searchQuery }
-              onChange={ (e) => setSearchQuery(e.target.value) }
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
               className="pl-10 h-12"
             />
           </div>
 
-          {/* 筛选和视图切换 */ }
+          {/* 筛选和视图切换 */}
           <div className="flex items-center justify-between mt-3 gap-2">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <Button
                 size="sm"
-                variant={ filterType === "all" ? "default" : "secondary" }
-                onClick={ () => setFilterType("all") }
+                variant={filterType === "all" ? "default" : "secondary"}
+                onClick={() => setFilterType("all")}
               >
                 全部
               </Button>
               <Button
                 size="sm"
-                variant={ filterType === "mp4" ? "default" : "secondary" }
-                onClick={ () => setFilterType("mp4") }
+                variant={filterType === "mp4" ? "default" : "secondary"}
+                onClick={() => setFilterType("mp4")}
               >
                 MP4
               </Button>
               <Button
                 size="sm"
-                variant={ filterType === "webm" ? "default" : "secondary" }
-                onClick={ () => setFilterType("webm") }
+                variant={filterType === "webm" ? "default" : "secondary"}
+                onClick={() => setFilterType("webm")}
               >
                 WebM
               </Button>
               <Button
                 size="sm"
-                variant={ filterType === "hls_directory" ? "default" : "secondary" }
-                onClick={ () => setFilterType("hls_directory") }
+                variant={filterType === "hls_directory" ? "default" : "secondary"}
+                onClick={() => setFilterType("hls_directory")}
               >
                 HLS
               </Button>
@@ -141,15 +141,15 @@ export default function VideosPage() {
             <div className="flex gap-1 shrink-0">
               <Button
                 size="icon"
-                variant={ viewMode === "grid" ? "default" : "ghost" }
-                onClick={ () => setViewMode("grid") }
+                variant={viewMode === "grid" ? "default" : "ghost"}
+                onClick={() => setViewMode("grid")}
               >
                 <Grid3x3 className="w-5 h-5" />
               </Button>
               <Button
                 size="icon"
-                variant={ viewMode === "list" ? "default" : "ghost" }
-                onClick={ () => setViewMode("list") }
+                variant={viewMode === "list" ? "default" : "ghost"}
+                onClick={() => setViewMode("list")}
               >
                 <List className="w-5 h-5" />
               </Button>
@@ -158,9 +158,9 @@ export default function VideosPage() {
         </div>
       </header>
 
-      {/* 视频列表 */ }
+      {/* 视频列表 */}
       <main className="container mx-auto px-4 py-6">
-        { loading ? (
+        {loading ? (
           <div className="text-center py-20">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3"></div>
             <p className="text-lg text-muted-foreground">正在加载视频...</p>
@@ -168,15 +168,15 @@ export default function VideosPage() {
         ) : error ? (
           <div className="text-center py-20">
             <p className="text-lg text-red-600 mb-2">错误</p>
-            <p className="text-sm text-muted-foreground">{ error }</p>
+            <p className="text-sm text-muted-foreground">{error}</p>
             <Button
               className="mt-4"
-              onClick={ () => {
+              onClick={() => {
                 setLoading(true)
                 getVideos().then(setVideos).catch(() => {
                   setError("无法加载视频数据，请检查服务器连接")
                 }).finally(() => setLoading(false))
-              } }
+              }}
             >
               重试
             </Button>
@@ -188,14 +188,14 @@ export default function VideosPage() {
           </div>
         ) : (
           <>
-            <div className="mb-4 text-sm text-muted-foreground">找到 { filteredVideos.length } 个视频</div>
-            <div className={ viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4" }>
-              { filteredVideos.map((video, index) => (
-                <VideoListItem key={ index } video={ video } onClick={ () => handleVideoClick(video) } />
-              )) }
+            <div className="mb-4 text-sm text-muted-foreground">找到 {filteredVideos.length} 个视频</div>
+            <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4"}>
+              {filteredVideos.map((video, index) => (
+                <VideoListItem key={index} video={video} onClick={() => handleVideoClick(video)} />
+              ))}
             </div>
           </>
-        ) }
+        )}
       </main>
     </div>
   )

@@ -28,15 +28,20 @@ pub struct AppState {
 async fn main() {
     init_logger(); // 初始化日志
 
-    services::initialize_thumbnails(); // 初始化缩略图目录
+    // 从环境变量获取数据源目录，如果未设置则默认为"public"
+    let data_source_dir = std::env::var("DATA_SOURCE_DIR").unwrap_or_else(|_| "public".to_string());
+    println!("使用数据源目录: {}", data_source_dir);
+
+    // 初始化缩略图目录
+    services::initialize_thumbnails_with_source(&data_source_dir);
 
     // 初始化数据库
     let db_manager = VideoDbManager::new("videos.db").expect("Failed to initialize database");
 
-    // 从 public 目录中初始化数据库
+    // 从指定目录中初始化数据库
     let sync = services::DirectorySync::new(&db_manager);
-    if let Err(e) = sync.initialize_from_directory("public", false) {
-        println!("警告：无法从公共目录初始化数据库: {}", e);
+    if let Err(e) = sync.initialize_from_directory(&data_source_dir, false) {
+        println!("警告：无法从数据源目录初始化数据库: {}", e);
     } else {
         println!("数据库初始化成功");
     }
@@ -77,14 +82,14 @@ async fn main() {
         .route("/api/watcher/start", get(routes::start_watcher))
         .route("/api/watcher/stop", get(routes::stop_watcher))
         .route("/api/watcher/status", get(routes::get_watcher_status))
-        // 静态文件服务，public 目录下的文件可以通过 /public/... 访问
-        .nest_service("/public", ServeDir::new("public"))
+        // 静态文件服务，数据源目录下的文件可以通过 /public/... 访问
+        .nest_service("/public", ServeDir::new(&data_source_dir))
         // 静态文件服务，thumbnails 目录下的文件可以通过 /thumbnails/... 访问
         .nest_service("/thumbnails", ServeDir::new("thumbnails"))
         .with_state(app_state)
         .layer(cors);
 
-    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3003));
     info!("listening on {}", addr);
     info!("CORS enabled - allowing all origins");
     info!("Thumbnails directory initialized");
