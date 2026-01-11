@@ -58,109 +58,109 @@ export default function VideoPlayPage() {
   }
 
   return (
-    <div className="h-[90vh] bg-background flex flex-col">
-      <header className="fixed top-0 left-0 right-0 z-20 bg-gradient-to-b from-black/90 to-black/60 backdrop-blur-md">
-        <div className="flex items-center justify-between px-3 py-3 safe-area-top">
+    <div className="min-h-screen bg-background">
+      {/* 顶部导航栏 - 优化为毛玻璃效果 */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border/50">
+        <div className="container mx-auto px-4 py-3 flex items-center justify-between safe-area-top">
           <Button
             size="icon"
             variant="ghost"
             onClick={handleBack}
-            className="text-white hover:bg-white/10 active:bg-white/20 transition-colors h-10 w-10"
+            className="h-10 w-10 hover:bg-accent transition-colors"
           >
             <ChevronLeft className="w-6 h-6" />
           </Button>
+
+          {/* 标题 - 支持滚动和截断 */}
+          <div className="flex-1 mx-3 overflow-hidden">
+            <h1 className="text-base font-semibold text-foreground truncate text-center">
+              {video.name}
+            </h1>
+          </div>
 
           <div className="flex gap-1">
             <Button
               size="icon"
               variant="ghost"
               onClick={handleShare}
-              className="text-white hover:bg-white/10 active:bg-white/20 transition-colors h-10 w-10"
+              className="h-10 w-10 hover:bg-accent transition-colors"
             >
               <Share2 className="w-5 h-5" />
-            </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              className="text-white hover:bg-white/10 active:bg-white/20 transition-colors h-10 w-10"
-            >
-              <MoreVertical className="w-5 h-5" />
             </Button>
           </div>
         </div>
       </header>
 
-      <div className="flex-1 flex items-center justify-center  ">
-        <div className="w-full max-w-3xl">
-          <MobileVideoPlayer media={video} autoPlay />
-        </div>
-      </div>
-
-      <div className="bg-gradient-to-t from-background to-muted/20 border-t overflow-y-auto max-h-[55vh]">
-        <div className="px-4 py-6 space-y-6">
-          <div className="space-y-3">
-            <h1 className="text-2xl font-bold leading-tight text-balance">{video.name}</h1>
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              {video.resolution && (
-                <span className="px-2.5 py-1 bg-primary/10 text-primary rounded-full font-medium">
-                  {video.resolution}
-                </span>
-              )}
-              {video.size && <span className="px-2.5 py-1 bg-muted rounded-full">{video.size}</span>}
-              {video.bitrate && <span className="px-2.5 py-1 bg-muted rounded-full">{video.bitrate}</span>}
-            </div>
+      {/* 主要内容区域 */}
+      <div className="pt-[60px] pb-[80px]">
+        {/* 视频播放器容器 */}
+        <div className="container mx-auto px-4 py-4">
+          <div className="relative rounded-xl overflow-hidden shadow-lg border border-border/50">
+            <MobileVideoPlayer media={video} autoPlay />
           </div>
+        </div>
 
-          {video.createdAt && (
-            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <Clock className="w-4 h-4" />
-              <span>上传时间：{video.createdAt}</span>
-            </div>
-          )}
-
-          <div className="bg-card border rounded-xl overflow-hidden shadow-sm">
-            <div className="px-4 py-3 border-b bg-muted/30">
-              <h3 className="font-semibold flex items-center gap-2">
-                <FileVideo className="w-4 h-4" />
-                视频详情
-              </h3>
-            </div>
-            <div className="divide-y">
-              <div className="px-4 py-3 flex items-center justify-between">
-                <div className="flex items-center gap-2 text-muted-foreground">
-                  <Film className="w-4 h-4" />
-                  <span className="text-sm">格式</span>
-                </div>
-                <span className="font-semibold text-sm bg-primary/10 text-primary px-3 py-1 rounded-full">
-                  {video.type.toUpperCase()}
-                </span>
-              </div>
-              {video.duration && (
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <Clock className="w-4 h-4" />
-                    <span className="text-sm">时长</span>
-                  </div>
-                  <span className="font-medium text-sm">
-                    {Math.floor(video.duration / 60)}:{(video.duration % 60).toString().padStart(2, "0")}
+        {/* 视频信息卡片 */}
+        <div className="container mx-auto px-4">
+          <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
+            {/* 标签页 - 显示关键信息 */}
+            <div className="p-4 space-y-4">
+              {/* 标签和元数据 */}
+              <div className="flex flex-wrap items-center gap-2">
+                {video.resolution && (
+                  <span className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full">
+                    {video.resolution}
                   </span>
-                </div>
-              )}
-              {video.size && (
-                <div className="px-4 py-3 flex items-center justify-between">
-                  <div className="flex items-center gap-2 text-muted-foreground">
-                    <HardDrive className="w-4 h-4" />
-                    <span className="text-sm">文件大小</span>
+                )}
+                {video.type && (
+                  <span className="px-2.5 py-1 bg-secondary text-secondary-foreground text-xs font-medium rounded-full uppercase">
+                    {video.type}
+                  </span>
+                )}
+                {video.size && (
+                  <span className="px-2.5 py-1 bg-muted text-muted-foreground text-xs font-medium rounded-full">
+                    {video.size}
+                  </span>
+                )}
+                {video.bitrate && (
+                  <span className="px-2.5 py-1 bg-muted text-muted-foreground text-xs font-medium rounded-full">
+                    {video.bitrate}
+                  </span>
+                )}
+              </div>
+
+              {/* 详细信息网格 */}
+              <div className="flex flex-col gap-2 text-sm">
+                {video.duration && (
+                  <div className="flex items-center gap-2">
+                    <Clock className="w-4 h-4 text-muted-foreground" />
+                    <span className="font-medium">
+                      {video.duration}:
+                    </span>
                   </div>
-                  <span className="font-medium text-sm">{video.size}</span>
+                )}
+                {video.createdAt && (
+                  <div className="flex items-center gap-2">
+                    <span className="text-muted-foreground">上传:</span>
+                    <span className="font-medium truncate">{video.createdAt}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* 文件信息 */}
+              <div className="pt-3 border-t border-border/50">
+                <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                  <FileVideo className="w-3.5 h-3.5" />
+                  <span className="font-mono truncate">{video.path.split('\\').pop() || video.name}</span>
                 </div>
-              )}
+              </div>
             </div>
           </div>
-
-          <div className="h-8" />
         </div>
       </div>
+
+      {/* 底部安全区域 */}
+      <div className="fixed bottom-0 left-0 right-0 h-[env(safe-area-inset-bottom)] bg-background" />
     </div>
   )
 }

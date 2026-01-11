@@ -221,23 +221,8 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     setCurrentTime(newTime)
   }
 
-  const toggleMute = () => {
-    const video = videoRef.current
-    if (!video) return
 
-    video.muted = !isMuted
-    setIsMuted(!isMuted)
-  }
 
-  const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const video = videoRef.current
-    if (!video) return
-
-    const newVolume = Number.parseFloat(e.target.value)
-    video.volume = newVolume
-    setVolume(newVolume)
-    setIsMuted(newVolume === 0)
-  }
 
   const toggleFullscreen = () => {
     const video = videoRef.current
@@ -250,13 +235,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     }
   }
 
-  const handleRestart = () => {
-    const video = videoRef.current
-    if (!video) return
 
-    video.currentTime = 0
-    video.play()
-  }
 
   if (error) {
     return (
@@ -273,17 +252,17 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
 
   return (
     <div
-      className="relative w-full aspect-video bg-black rounded-lg overflow-hidden touch-none"
+      className="relative w-full aspect-video bg-black overflow-hidden touch-none group"
       onTouchStart={resetControlsTimeout}
       onTouchMove={resetControlsTimeout}
       onClick={resetControlsTimeout}
     >
       <video
         ref={videoRef}
-        className="w-full h-full"
+        className="w-full h-full object-contain"
         playsInline
         preload="metadata"
-        poster={`http://192.168.31.236:3003\\${media.thumbnail}`}
+        poster={media.thumbnail ? `http://192.168.31.236:3003/${media.thumbnail}` : undefined}
         onClick={togglePlay}
         crossOrigin="anonymous"
       >
@@ -291,109 +270,122 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
         您的浏览器不支持视频播放
       </video>
 
+      {/* 加载状态 - 优化为更现代的加载动画 */}
       {isLoading && (
-        <div className="absolute inset-0 flex items-center justify-center bg-black/50">
-          <div className="w-12 h-12 border-4 border-white/30 border-t-white rounded-full animate-spin" />
+        <div className="absolute inset-0 flex items-center justify-center bg-black/60 backdrop-blur-sm">
+          <div className="flex flex-col items-center gap-3">
+            <div className="w-10 h-10 border-3 border-white/30 border-t-white rounded-full animate-spin" />
+            <p className="text-white/90 text-sm font-medium">加载中...</p>
+          </div>
         </div>
       )}
 
-      <div
-        className={`absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-black/40 transition-opacity duration-300 ${showControls ? "opacity-100" : "opacity-0"
-          }`}
-      >
-        {/* 顶部信息栏 */}
-        <div className="absolute top-0 left-0 right-0 p-4">
-          <h3 className="text-white font-medium text-lg truncate">{media.name}</h3>
-
-          {media.resolution && <p className="text-white/70 text-sm mt-1">{media.resolution}</p>}
+      {/* 错误状态 */}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-black/80 backdrop-blur-md">
+          <div className="text-center p-6 max-w-xs">
+            <p className="text-white/90 text-lg mb-4">{error}</p>
+            <Button
+              onClick={() => window.location.reload()}
+              variant="secondary"
+              className="bg-white/20 hover:bg-white/30 text-white border-white/30"
+            >
+              重新加载
+            </Button>
+          </div>
         </div>
+      )}
 
-        {/* 中央播放按钮 */}
-        {!isPlaying && !isLoading && (
+      {/* 控制层 - 优化为渐变遮罩和更清晰的视觉层次 */}
+      <div
+        className={`absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-transparent transition-opacity  duration-300 ${showControls ? "opacity-100" : "opacity-0"
+          } group-hover:opacity-100`}
+      >
+        {/* 中央播放按钮 - 优化为更现代的圆形按钮 */}
+        {!isPlaying && !isLoading && !error && (
           <div className="absolute inset-0 flex items-center justify-center">
-            <Button size="lg" onClick={togglePlay} className="w-20 h-20 rounded-full bg-white/90 hover:bg-white">
-              <Play className="w-10 h-10 text-black fill-black ml-1" />
+            <Button
+              size="lg"
+              onClick={togglePlay}
+              className="w-16 h-16 rounded-full bg-white/90 hover:bg-white text-black shadow-lg transition-transform hover:scale-105 active:scale-95"
+            >
+              <Play className="w-8 h-8 fill-black ml-0.5" />
             </Button>
           </div>
         )}
 
-        {/* 底部控制栏 */}
-        <div className="absolute bottom-0 left-0 right-0 p-4 space-y-3">
-          {/* 进度条 */}
-          <div className="flex items-center gap-3">
-            <span className="text-white text-sm font-medium min-w-[40px]">{currentTime}</span>
+        {/* 底部控制栏 - 参考B站布局：进度条在左侧，控制按钮在右侧 */}
+        <div className="absolute bottom-0 left-0 right-0 p-3 space-y-2 flex ">
+          {/* 进度条 - 单独一行，更宽的滑块 */}
+          <div className="flex items-center gap-3 px-1">
+            <span className="text-white text-xs font-medium min-w-[40px] text-right tabular-nums opacity-90">
+              {formatTime(currentTime)}
+            </span>
             <input
               type="range"
               min="0"
               max={duration || 0}
               value={currentTime}
               onChange={handleSeek}
-              className="flex-1 h-2 bg-white/30 rounded-full appearance-none cursor-pointer
+              className="flex-1 h-1.5 bg-white/30 hover:bg-white/50 rounded-full appearance-none cursor-pointer transition-colors
                 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:h-4 
                 [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
+                [&::-webkit-slider-thumb]:shadow-[0_0_8px_rgba(0,0,0,0.5)]
+                [&::-webkit-slider-thumb]:hover:scale-110
                 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:h-4 
-                [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
+                [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white
+                [&::-moz-range-thumb]:border-0
+                [&::-moz-range-thumb]:hover:scale-110"
             />
-            <span className="text-white text-sm font-medium min-w-[40px] text-right">{formatTime(duration)}</span>
+            <span className="text-white text-xs font-medium min-w-[40px] tabular-nums opacity-90">
+              {formatTime(duration)}
+            </span>
           </div>
 
-          {/* 控制按钮 */}
-          <div className="flex items-center justify-between">
+          {/* 控制按钮 - 紧凑布局，参考B站 */}
+          <div className="flex items-center justify-between px-1">
+            {/* 左侧：播放/暂停 + 重新开始 + 音量滑块 */}
             <div className="flex items-center gap-2">
               <Button
                 size="icon"
                 variant="ghost"
                 onClick={togglePlay}
-                className="text-white hover:bg-white/20 h-12 w-12"
+                className="text-white hover:bg-white/20 h-10 w-10 rounded-lg transition-colors"
               >
-                {isPlaying ? <Pause className="w-6 h-6" /> : <Play className="w-6 h-6" />}
+                {isPlaying ? <Pause className="w-5 h-5" /> : <Play className="w-5 h-5" />}
               </Button>
 
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={handleRestart}
-                className="text-white hover:bg-white/20 h-12 w-12"
-              >
-                <RotateCcw className="w-5 h-5" />
-              </Button>
-
-              <div className="flex items-center gap-2">
-                <Button
-                  size="icon"
-                  variant="ghost"
-                  onClick={toggleMute}
-                  className="text-white hover:bg-white/20 h-12 w-12"
-                >
-                  {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
-                </Button>
-                <input
-                  type="range"
-                  min="0"
-                  max="1"
-                  step="0.1"
-                  value={isMuted ? 0 : volume}
-                  onChange={handleVolumeChange}
-                  className="w-20 h-1 bg-white/30 rounded-full appearance-none cursor-pointer
-                    [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3 
-                    [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-white
-                    [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3 
-                    [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-white [&::-moz-range-thumb]:border-0"
-                />
-              </div>
             </div>
 
+            {/* 右侧：全屏按钮 */}
             <Button
               size="icon"
               variant="ghost"
               onClick={toggleFullscreen}
-              className="text-white hover:bg-white/20 h-12 w-12"
+              className="text-white hover:bg-white/20 h-10 w-10 rounded-lg transition-colors"
+              title="全屏"
             >
-              <Maximize className="w-5 h-5" />
+              <Maximize className="w-4 h-4" />
             </Button>
           </div>
         </div>
       </div>
+
+      {/* 播放状态指示器 - 在屏幕中央显示播放/暂停状态 */}
+      {!showControls && !isLoading && !error && (
+        <div
+          className="absolute inset-0 flex items-center justify-center pointer-events-none opacity-0 transition-opacity duration-200"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="bg-black/50 backdrop-blur-sm rounded-full p-4 transform scale-90 transition-transform duration-200">
+            {isPlaying ? (
+              <Pause className="w-8 h-8 text-white fill-white" />
+            ) : (
+              <Play className="w-8 h-8 text-white fill-white" />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
