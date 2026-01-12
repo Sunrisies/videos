@@ -1,5 +1,6 @@
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::{queries, video_types};
+use std::time::Instant;
 
 use crate::utils::{
     check_m3u8_file, format_size, get_created_at, get_ensure_thumbnail, get_m3u8_duration,
@@ -40,27 +41,39 @@ impl<'a> DirectorySync<'a> {
 
     /// 从目录初始化数据库（双向同步）
     pub fn initialize_from_directory(&self, root_path: &str, force: bool) -> Result<()> {
+        let start_time = Instant::now();
         info!("=== 开始数据库双向同步: {} ===", root_path);
 
         // 检查数据库是否已初始化
+        let query_start = Instant::now();
         let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_COUNT)?;
         let count: i64 = stmt.query_row([], |row| row.get(0))?;
+        info!("数据库查询耗时: {}ms", query_start.elapsed().as_millis());
 
         if count > 0 && !force {
             info!("数据库已包含 {} 条记录，执行增量同步...", count);
-            return self.bidirectional_sync(root_path);
+            let sync_start = Instant::now();
+            let result = self.bidirectional_sync(root_path)?;
+            info!("增量同步耗时: {}ms", sync_start.elapsed().as_millis());
+            info!("总耗时: {}ms", start_time.elapsed().as_millis());
+            return Ok(result);
         }
 
         // 如果 force 为 true 或数据库为空，则清除并重新初始化
         if force {
             info!("请求强制重新初始化，清除现有数据...");
+            let clear_start = Instant::now();
             self.db_manager.conn.execute("DELETE FROM videos", [])?;
+            info!("清除数据耗时: {}ms", clear_start.elapsed().as_millis());
         }
 
         // 执行完整的双向同步
+        let sync_start = Instant::now();
         self.bidirectional_sync(root_path)?;
+        info!("完整同步耗时: {}ms", sync_start.elapsed().as_millis());
 
         info!("=== 数据库双向同步完成 ===");
+        info!("总耗时: {}ms", start_time.elapsed().as_millis());
         Ok(())
     }
 
@@ -71,6 +84,7 @@ impl<'a> DirectorySync<'a> {
 
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
     fn bidirectional_sync(&self, root_path: &str) -> Result<()> {
+        let sync_start = Instant::now();
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -78,11 +92,15 @@ impl<'a> DirectorySync<'a> {
             .to_string();
 
         // 1. 获取数据库中所有未删除的记录
+        let db_start = Instant::now();
         let db_records = self.get_all_db_records()?;
+        info!("获取数据库记录耗时: {}ms", db_start.elapsed().as_millis());
         info!("数据库中未删除记录数: {}", db_records.len());
 
         // 2. 扫描文件系统，构建文件映射
+        let scan_start = Instant::now();
         let (fs_files, scan_errors) = self.scan_filesystem(root_path)?;
+        info!("扫描文件系统耗时: {}ms", scan_start.elapsed().as_millis());
         info!(
             "文件系统扫描到文件数: {}, 错误数: {}",
             fs_files.len(),
@@ -95,6 +113,7 @@ impl<'a> DirectorySync<'a> {
         }
 
         // 3. 处理新增和变更的文件（文件系统 -> 数据库）
+        let process_start = Instant::now();
         let mut new_count = 0;
         let mut changed_count = 0;
         let mut skipped_count = 0;
@@ -122,8 +141,13 @@ impl<'a> DirectorySync<'a> {
                 }
             }
         }
+        info!(
+            "处理文件变更耗时: {}ms",
+            process_start.elapsed().as_millis()
+        );
 
         // 4. 处理删除的文件（数据库 -> 文件系统）
+        let delete_start = Instant::now();
         let mut deleted_count = 0;
         for (path, _db_record) in &db_records {
             if !fs_files.contains_key(path) {
@@ -133,6 +157,7 @@ impl<'a> DirectorySync<'a> {
                 info!("删除文件: {}", path);
             }
         }
+        info!("处理删除文件耗时: {}ms", delete_start.elapsed().as_millis());
 
         info!("=== 同步统计 ===");
         info!("新增文件: {}", new_count);
@@ -140,6 +165,7 @@ impl<'a> DirectorySync<'a> {
         info!("删除文件: {}", deleted_count);
         info!("跳过文件: {}", skipped_count);
         info!("错误数量: {}", scan_errors.len());
+        info!("双向同步总耗时: {}ms", sync_start.elapsed().as_millis());
 
         Ok(())
     }

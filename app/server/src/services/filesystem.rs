@@ -1,5 +1,7 @@
+use log::info;
 use std::path::Path as StdPath;
 use std::process::Command;
+use std::time::Instant;
 use walkdir::WalkDir;
 
 use crate::utils::check_m3u8_file;
@@ -37,7 +39,10 @@ pub fn initialize_thumbnails_with_source(source_dir: &str) {
     // 扫描指定数据源目录并生成缩略图（递归所有子目录）
     let source_path = StdPath::new(source_dir);
     if source_path.exists() {
-        println!("Scanning source directory {} recursively for files to generate thumbnails...", source_dir);
+        println!(
+            "Scanning source directory {} recursively for files to generate thumbnails...",
+            source_dir
+        );
         generate_thumbnails_for_directory(source_path, thumbnails_path);
     } else {
         println!("Warning: source directory {} does not exist", source_dir);
@@ -157,6 +162,8 @@ pub fn generate_thumbnails_for_directory(public_path: &StdPath, thumbnails_path:
 
 /// 为视频文件生成缩略图
 pub fn generate_video_thumbnail(video_path: &StdPath, thumbnail_path: &StdPath) {
+    // 开始时间
+    let start = Instant::now();
     // 使用 ffmpeg 从视频的第一帧生成缩略图
     // 命令: ffmpeg -i input.mp4 -ss 00:00:01 -vframes 1 -q:v 2 output.jpg
     let output = thumbnail_path.to_string_lossy().to_string();
@@ -164,7 +171,16 @@ pub fn generate_video_thumbnail(video_path: &StdPath, thumbnail_path: &StdPath) 
     println!("当前视频文件: {},输出文件{}", input, output);
     match Command::new("ffmpeg")
         .args(&[
-            "-i", &input, "-ss", "00:00:01", "-vframes", "1", "-q:v", "2",
+            "-i",
+            &input,
+            "-ss",
+            "00:00:01",
+            "-vframes",
+            "1",
+            "-q:v",
+            "2",
+            "-vf",
+            "scale=320:-1",
             "-y", // 覆盖输出文件
             &output,
         ])
@@ -172,16 +188,18 @@ pub fn generate_video_thumbnail(video_path: &StdPath, thumbnail_path: &StdPath) 
     {
         Ok(_) => {
             if thumbnail_path.exists() {
-                println!("✓ Generated thumbnail for video: {}", video_path.display());
+                info!("✓ Generated thumbnail for video: {}", video_path.display());
+                // 结束时间
+                info!("结束时间:{:?}", start.elapsed());
             } else {
-                println!(
+                info!(
                     "✗ Failed to generate thumbnail for video: {}",
                     video_path.display()
                 );
             }
         }
         Err(e) => {
-            println!("✗ FFmpeg error for {}: {}", video_path.display(), e);
+            info!("✗ FFmpeg error for {}: {}", video_path.display(), e);
             // 生成默认图标作为备用
             generate_default_thumbnail(thumbnail_path, "video");
         }

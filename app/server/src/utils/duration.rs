@@ -1,6 +1,11 @@
 use std::{fs, path::Path, process::Command};
+use std::time::Instant;
+use log::info;
 
 pub fn get_video_duration(video_path: &Path) -> Option<String> {
+    let start_time = Instant::now();
+    info!("开始获取视频时长: {:?}", video_path);
+    
     let output = Command::new("ffprobe")
         .arg("-v")
         .arg("error")
@@ -19,7 +24,8 @@ pub fn get_video_duration(video_path: &Path) -> Option<String> {
     let hours = total_seconds / 3600;
     let minutes = (total_seconds % 3600) / 60;
     let seconds = total_seconds % 60;
-
+    
+    info!("获取视频时长完成，耗时: {}ms", start_time.elapsed().as_millis());
     Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
 }
 pub fn get_m3u8_duration(m3u8_path: &Path) -> Option<String> {
