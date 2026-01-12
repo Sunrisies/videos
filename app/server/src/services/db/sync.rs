@@ -5,6 +5,7 @@ use std::time::Instant;
 use crate::utils::{
     check_m3u8_file, format_size, get_created_at, get_ensure_thumbnail, get_m3u8_duration,
     get_systemtime_created, get_video_duration, has_m3u8_file, is_video_or_container,
+    merge_m3u8_to_mp4,
 };
 use log::info;
 use rusqlite::Result;
@@ -269,7 +270,8 @@ impl<'a> DirectorySync<'a> {
             .unwrap_or_default();
         let path_str = check_m3u8_file(&path).unwrap_or_default();
         info!("m3u8 目录处理完成:------ {:?}", path_str);
-
+        let assa = merge_m3u8_to_mp4(&path);
+        info!("------{:?}", assa);
         // 使用目录名称作为文件名
         let name = path
             .file_name()
