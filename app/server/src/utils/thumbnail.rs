@@ -2,9 +2,7 @@ use log::info;
 use std::path::Path;
 use std::time::Instant;
 
-use crate::services::filesystem::{
-    generate_default_thumbnail, generate_image_thumbnail, generate_video_thumbnail,
-};
+use crate::services::filesystem::{generate_default_thumbnail, generate_video_thumbnail};
 /// 确保缩略图存在，如果不存在则生成
 pub fn get_ensure_thumbnail(file_path: &Path) -> Option<String> {
     let start_time = Instant::now();
@@ -48,12 +46,6 @@ pub fn get_ensure_thumbnail(file_path: &Path) -> Option<String> {
 
         if extension == "mp4" || extension == "avi" || extension == "mkv" || extension == "mov" {
             generate_video_thumbnail(file_path, &thumbnail_path);
-        } else if extension == "jpg"
-            || extension == "jpeg"
-            || extension == "png"
-            || extension == "gif"
-        {
-            generate_image_thumbnail(file_path, &thumbnail_path);
         } else if extension == "m3u8" {
             // 对于 m3u8 文件，尝试从目录中的第一个 ts 片段生成
             if let Some(parent) = file_path.parent() {
