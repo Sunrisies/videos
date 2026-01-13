@@ -1,0 +1,31 @@
+[
+    {
+        "name": "sample_video1",
+        "url": "https://europe.olemovienews.com/ts4/20260110/818a2vxr/mp4/818a2vxr.mp4/index-v1-a1.m3u8",
+        "output_dir": "./output/sample_video1",
+        "params": {
+            "quality": "1080p",
+            "language": "chinese",
+            "priority": 1
+        }
+    },
+    {
+        "name": "sample_video2",
+        "url": "https://europe.olemovienews.com/ts4/20260112/m6n0j03o/mp4/m6n0j03o.mp4/index-v1-a1.m3u8",
+        "output_dir": "./output/sample_video2",
+        "params": {
+            "quality": "720p",
+            "language": "english",
+            "priority": 2
+        }
+    },
+    {
+        "name": "sample_video3",
+        "url": "https://europe.olemovienews.com/ts4/20260111/eve6ozs0/mp4/eve6ozs0.mp4/index-v1-a1.m3u8",
+        "output_dir": "./output/sample_video3",
+        "params": {
+            "quality": "480p",
+            "priority": 3
+        }
+    }
+]

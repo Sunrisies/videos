@@ -17,6 +17,7 @@
 - **智能目录识别**: 自动识别包含视频文件的目录，智能分类为 HLS 流媒体目录或普通视频目录
 - **RESTful API**: 提供简洁、规范的 RESTful API 接口获取视频列表和详细信息
 - **静态文件服务**: 直接通过 URL 访问所有静态资源文件
+- **M3U8视频下载**: 集成Python下载模块，支持从M3U8源下载视频到本地
 
 ### 🚀 技术特性
 - **高性能架构**: 基于 Axum 和 Tokio 的异步高性能架构，支持高并发访问
@@ -256,25 +257,38 @@ if (Hls.isSupported()) {
 ```
 videos/
 ├── app/
-│   └── server/                    # Rust 服务器项目
-│       ├── src/
-│       │   └── main.rs           # 主程序文件
-│       ├── public/               # 视频文件存储目录
-│       │   ├── video1.mp4        # MP4 视频文件
-│       │   ├── video2.mp4
-│       │   ├── 1221/             # HLS 流媒体目录
-│       │   │   ├── index.m3u8
-│       │   │   ├── segment_000.ts
-│       │   │   └── ...
-│       │   └── subtitles/        # 字幕文件目录
-│       │       └── video1.vtt
-│       ├── static/               # 静态网页文件
-│       │   ├── index.html        # 示例页面
-│       │   ├── style.css         # 样式文件
-│       │   └── script.js         # 脚本文件
-│       ├── Cargo.toml            # Rust 项目配置
-│       ├── Cargo.lock            # 依赖锁定文件
-│       └── README.md             # 服务器说明文档
+│   ├── server/                    # Rust 服务器项目
+│   │   ├── src/
+│   │   │   └── main.rs           # 主程序文件
+│   │   ├── public/               # 视频文件存储目录
+│   │   │   ├── video1.mp4        # MP4 视频文件
+│   │   │   ├── video2.mp4
+│   │   │   ├── 1221/             # HLS 流媒体目录
+│   │   │   │   ├── index.m3u8
+│   │   │   │   ├── segment_000.ts
+│   │   │   │   └── ...
+│   │   │   └── subtitles/        # 字幕文件目录
+│   │   │       └── video1.vtt
+│   │   ├── static/               # 静态网页文件
+│   │   │   ├── index.html        # 示例页面
+│   │   │   ├── style.css         # 样式文件
+│   │   │   └── script.js         # 脚本文件
+│   │   ├── Cargo.toml            # Rust 项目配置
+│   │   ├── Cargo.lock            # 依赖锁定文件
+│   │   └── README.md             # 服务器说明文档
+│   ├── downloader/                # Python M3U8下载模块
+│   │   ├── core/                  # 核心功能
+│   │   │   ├── config.py
+│   │   │   ├── parser.py
+│   │   │   ├── downloader.py
+│   │   │   ├── advanced_downloader.py
+│   │   │   └── utils.py
+│   │   ├── cli/                   # 命令行工具
+│   │   ├── tests/                 # 测试文件
+│   │   ├── examples/              # 示例代码
+│   │   ├── docs/                  # 文档
+│   │   └── requirements.txt       # Python依赖
+│   └── web/                       # Next.js前端应用
 ├── .gitignore                    # Git 忽略配置
 └── README.md                     # 项目总说明文档（本文件）
 ```
@@ -300,6 +314,11 @@ videos/
 - **静态资源**: HTML、CSS、JS 等静态文件
 - **示例页面**: 提供功能演示和测试界面
 - **访问路径**: 通过 `/static/` 前缀访问
+
+#### `app/downloader/`
+- **Python下载模块**: M3U8视频下载工具
+- **核心功能**: 多线程下载、断点续传、JSON配置
+- **使用方式**: 命令行或编程调用
 
 ### API 结构
 
@@ -349,6 +368,109 @@ videos/
   ]
 }
 ```
+
+## M3U8视频下载功能
+
+本项目集成了Python M3U8下载模块，支持从M3U8源下载视频到本地。
+
+### 功能特性
+- ✅ M3U8视频下载
+- ✅ 多线程并发下载
+- ✅ 断点续传
+- ✅ 错误重试机制
+- ✅ 实时进度显示
+- ✅ JSON批量任务
+- ✅ 配置模板（快速、稳定、低带宽）
+
+### 依赖安装
+
+```bash
+cd app/downloader
+pip install -r requirements.txt
+```
+
+### 命令行使用
+
+#### 基础下载
+```bash
+cd app/downloader
+python -m cli.cli https://example.com/video.m3u8 -o output.mp4
+```
+
+#### 自定义参数
+```bash
+python -m cli.cli https://example.com/video.m3u8 -o myvideo.mp4 -t 8 --profile fast
+```
+
+#### 使用配置模板
+```bash
+# 快速模式
+python -m cli.cli https://example.com/video.m3u8 --profile fast
+
+# 稳定模式（推荐）
+python -m cli.cli https://example.com/video.m3u8 --profile stable
+
+# 低带宽模式
+python -m cli.cli https://example.com/video.m3u8 --profile low_bandwidth
+```
+
+#### 交互模式
+```bash
+python -m cli.cli -i
+```
+
+### 编程使用
+
+```python
+from app.downloader import M3U8Downloader, DownloadConfig, ConfigTemplates
+
+# 基础使用
+url = "https://example.com/video.m3u8"
+downloader = M3U8Downloader(url)
+downloader.download("output.mp4")
+
+# 使用配置模板
+config = ConfigTemplates.stable()
+downloader = M3U8Downloader(url, config)
+downloader.download("output.mp4")
+
+# 自定义配置
+config = DownloadConfig(
+    num_threads=8,
+    max_retries=5,
+    retry_delay=2.0,
+    connect_timeout=15,
+    read_timeout=60,
+)
+downloader = M3U8Downloader(url, config)
+downloader.download("output.mp4")
+```
+
+### 高级功能
+
+#### JSON批量下载
+创建 `tasks.json` 文件：
+```json
+[
+    {
+        "name": "video1",
+        "url": "https://example.com/video1.m3u8",
+        "output_dir": "./output/video1"
+    },
+    {
+        "name": "video2",
+        "url": "https://example.com/video2.m3u8",
+        "output_dir": "./output/video2"
+    }
+]
+```
+
+执行批量下载：
+```bash
+python -m cli.advanced_cli --json tasks.json --max-concurrent 3
+```
+
+更多详细使用说明请参考：[app/downloader/docs/README.md](app/downloader/docs/README.md)
 
 ## 贡献指南
 

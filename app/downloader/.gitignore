@@ -1,0 +1,36 @@
+# Python缓存
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+*.pyc
+
+# 运行时产物
+*.log
+/temp/
+output/
+download_tasks.json
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# 环境
+.env
+venv/
+env/
+ENV/
+.venv
+
+# 测试
+.pytest_cache/
+.coverage
+htmlcov/
+
+# 构建产物
+build/
+dist/
+*.egg-info/

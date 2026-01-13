@@ -402,7 +402,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
         )}
 
         {/* 底部控制栏 - 参考B站布局：进度条在左侧，控制按钮在右侧 */}
-        <div className="absolute bottom-0 left-0 right-0 p-3 space-y-2 flex ">
+        <div className="absolute bottom-0 left-0 right-0 flex items-center justify-between">
           {/* 进度条 - 单独一行，更宽的滑块 */}
           <div className="flex items-center gap-3 px-1">
             <span className="text-white text-xs font-medium min-w-[40px] text-right tabular-nums opacity-90">
