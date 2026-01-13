@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Search, Grid3x3, List } from "lucide-react"
 import type { MediaItem } from "@/types/media"
 import { useScrollPosition } from "@/hooks/useScrollPosition"
+import { useAuth } from "@/hooks/useAuth"
 
 // API返回的视频数据接口
 interface ApiVideoItem {
@@ -23,7 +24,7 @@ interface ApiVideoItem {
 }
 
 const getVideos = async (): Promise<MediaItem[]> => {
-  const response = await fetch("http://192.168.31.236:3003/api/videos")
+  const response = await fetch("http://192.168.1.5:3003/api/videos")
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
@@ -48,8 +49,8 @@ const getVideos = async (): Promise<MediaItem[]> => {
 }
 
 export default function VideosPage() {
-
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading, requireAuth } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [filterType, setFilterType] = useState<string>("all")
@@ -59,6 +60,13 @@ export default function VideosPage() {
 
   // 使用自定义Hook来保存和恢复滚动位置
   const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
+
+  // 路由守卫：检查授权状态
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      requireAuth("/videos")
+    }
+  }, [authLoading, isAuthenticated, requireAuth])
 
   useEffect(() => {
     const fetchVideos = async () => {

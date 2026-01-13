@@ -6,10 +6,19 @@ import { MobileVideoPlayer } from "@/components/mobile-video-player"
 import { Button } from "@/components/ui/button"
 import { ChevronLeft, Share2, MoreVertical, HardDrive, Clock, FileVideo, Film } from "lucide-react"
 import type { MediaItem } from "@/types/media"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function VideoPlayPage() {
   const router = useRouter()
+  const { isAuthenticated, isLoading: authLoading, requireAuth } = useAuth()
   const [video, setVideo] = useState<MediaItem | null>(null)
+
+  // 路由守卫：检查授权状态
+  useEffect(() => {
+    if (!authLoading && !isAuthenticated) {
+      requireAuth("/videos/play")
+    }
+  }, [authLoading, isAuthenticated, requireAuth])
 
   useEffect(() => {
     // 从 sessionStorage 获取视频数据

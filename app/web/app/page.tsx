@@ -3,9 +3,19 @@
 import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Video, PlayCircle } from "lucide-react"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function HomePage() {
   const router = useRouter()
+  const { isAuthenticated, requireAuth } = useAuth()
+
+  const handleBrowseVideos = () => {
+    if (isAuthenticated) {
+      router.push("/videos")
+    } else {
+      requireAuth("/videos")
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-b from-background to-muted/20">
@@ -35,7 +45,7 @@ export default function HomePage() {
             专为移动端优化的视频播放体验，支持 MP4、WebM、HLS 等多种格式
           </p>
 
-          <Button size="lg" onClick={() => router.push("/videos")} className="h-14 px-8 text-lg">
+          <Button size="lg" onClick={handleBrowseVideos} className="h-14 px-8 text-lg">
             <Video className="w-5 h-5 mr-2" />
             浏览视频库
           </Button>

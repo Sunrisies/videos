@@ -22,8 +22,16 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
   const [showControls, setShowControls] = useState(true)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const controlsTimeoutRef = useRef<NodeJS.Timeout>()
+  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null)
   const hlsRef = useRef<any>(null)
+
+  // 拖动相关状态
+  const [isDragging, setIsDragging] = useState(false)
+  const [dragStartX, setDragStartX] = useState(0)
+  const [dragStartTime, setDragStartTime] = useState(0)
+  const [touchStartTime, setTouchStartTime] = useState(0)
+  const [previewTime, setPreviewTime] = useState(0)
+  const [showPreview, setShowPreview] = useState(false)
 
   const formatTime = (seconds: number) => {
     const mins = Math.floor(seconds / 60)
@@ -101,7 +109,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             const pathParts = videoUrl.split("\\")
             const filename = pathParts[pathParts.length - 1]
             // 使用相对路径访问public目录下的文件
-            videoUrl = `http://192.168.31.236:3003/public/${filename}`
+            videoUrl = `http://192.168.1.5:3003/public/${filename}`
           }
 
           // 如果是MP4文件，直接使用提供的路径
@@ -182,10 +190,10 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
       clearTimeout(controlsTimeoutRef.current)
     }
     setShowControls(true)
-    if (isPlaying) {
+    if (isPlaying && !isDragging) {
       controlsTimeoutRef.current = setTimeout(() => {
         setShowControls(false)
-      }, 3003)
+      }, 3000)
     }
   }
 
@@ -221,6 +229,75 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     setCurrentTime(newTime)
   }
 
+  // 触摸事件处理：单击切换控制栏和拖动调整进度
+  const handleTouchStart = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isLoading || error) return
+
+    const touch = e.touches[0]
+    setDragStartX(touch.clientX)
+    setTouchStartTime(Date.now())
+    setDragStartTime(currentTime)
+  }
+
+  const handleTouchMove = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isLoading || error) return
+
+    const touch = e.touches[0]
+    const deltaX = touch.clientX - dragStartX
+
+    // 判断是否达到拖动阈值 (10px)
+    if (Math.abs(deltaX) > 10 && !isDragging) {
+      setIsDragging(true)
+      setShowControls(true)
+    }
+
+    if (isDragging) {
+      // 计算进度变化：每像素移动对应的时间变化
+      const screenWidth = window.innerWidth
+      const deltaTime = (deltaX / screenWidth) * duration
+      const newTime = Math.max(0, Math.min(duration, dragStartTime + deltaTime))
+
+      setPreviewTime(newTime)
+      setShowPreview(true)
+
+      // 防止默认滚动行为
+      e.preventDefault()
+    }
+  }
+
+  const handleTouchEnd = (e: React.TouchEvent<HTMLDivElement>) => {
+    if (isLoading || error) return
+
+    const touchDuration = Date.now() - touchStartTime
+    const touch = e.changedTouches[0]
+    const deltaX = touch.clientX - dragStartX
+
+    if (isDragging) {
+      // 应用拖动后的进度
+      const video = videoRef.current
+      if (video) {
+        video.currentTime = previewTime
+        setCurrentTime(previewTime)
+      }
+
+      // 延迟隐藏预览气泡
+      setTimeout(() => {
+        setShowPreview(false)
+      }, 300)
+
+      setIsDragging(false)
+      resetControlsTimeout()
+    } else if (Math.abs(deltaX) < 10 && touchDuration < 300) {
+      // 识别为单击事件：切换控制栏显示
+      setShowControls((prev) => !prev)
+
+      // 如果显示控制栏且正在播放，启动自动隐藏计时器
+      if (!showControls && isPlaying) {
+        resetControlsTimeout()
+      }
+    }
+  }
+
 
 
 
@@ -253,17 +330,16 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
   return (
     <div
       className="relative w-full aspect-video bg-black overflow-hidden touch-none group"
-      onTouchStart={resetControlsTimeout}
-      onTouchMove={resetControlsTimeout}
-      onClick={resetControlsTimeout}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       <video
         ref={videoRef}
         className="w-full h-full object-contain"
         playsInline
         preload="metadata"
-        poster={media.thumbnail ? `http://192.168.31.236:3003/${media.thumbnail}` : undefined}
-        onClick={togglePlay}
+        poster={media.thumbnail ? `http://192.168.1.5:3003/${media.thumbnail}` : undefined}
         crossOrigin="anonymous"
       >
         <source type="video/mp4" />
@@ -292,6 +368,17 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             >
               重新加载
             </Button>
+          </div>
+        </div>
+      )}
+
+      {/* 拖动进度预览气泡 */}
+      {showPreview && isDragging && (
+        <div className="absolute top-1/3 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50">
+          <div className="bg-black/80 backdrop-blur-sm px-4 py-2 rounded-lg shadow-lg">
+            <p className="text-white text-base font-medium whitespace-nowrap">
+              {formatTime(previewTime)} / {formatTime(duration)}
+            </p>
           </div>
         </div>
       )}
