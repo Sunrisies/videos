@@ -1,0 +1,7 @@
+[
+    {
+        "name": "sample_video1",
+        "url": "https://europe.olemovienews.com/ts4/20260105/BhHbHpsH/mp4/BhHbHpsH.mp4/clipTo/80760/index-v1-a1.m3u8",
+        "output_dir": "./server/public"
+    }
+]
