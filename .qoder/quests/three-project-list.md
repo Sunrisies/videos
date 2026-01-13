@@ -142,6 +142,318 @@ Web (获取数据、展示、播放)
 
 ---
 
+## 文档更新需求分析
+
+### 需要更新的 README 文件清单
+
+#### 1. 项目根目录 README.md
+**当前问题**:
+- 缺少三个子项目的整体介绍
+- 缺少项目间集成配置说明
+- 缺少快速启动的完整流程
+- Downloader 输出路径配置未说明
+
+**更新内容**:
+- 添加项目架构总览(Downloader → Server → Web)
+- 说明三个子项目的职责和关系
+- 集成配置:Downloader 输出到 Server public 目录
+- 完整的从零启动教程
+- 数据流向和工作流程图
+
+#### 2. app/server/README.md
+**当前问题**:
+- 文档重复内容较多(启动命令重复出现)
+- 缺少与 Downloader 集成的说明
+- API 文档描述完整但需要补充刷新机制
+
+**更新内容**:
+- 清理重复的启动命令说明
+- 添加"与 Downloader 集成"章节
+- 说明 public 目录的作用和权限要求
+- 补充手动刷新数据库的 API 使用
+
+#### 3. app/downloader/docs/README.md
+**当前问题**:
+- 缺少输出目录配置到 Server 的说明
+- JSON 配置示例未包含 output_dir 字段
+- 命令行使用示例路径不正确(应从 app 目录运行)
+
+**更新内容**:
+- 添加"集成到 Server"章节
+- 更新 JSON 配置示例,包含正确的 output_dir
+- 修正命令行运行示例(使用正确的工作目录)
+- 添加"文件路径最佳实践"说明
+
+#### 4. app/web/README.md
+**当前问题**:
+- 缺少与 Server API 集成的配置说明
+- 缺少环境变量配置示例
+
+**更新内容**:
+- 添加 API 端点配置说明
+- 补充环境变量(.env)配置示例
+- 说明如何连接到本地或远程 Server
+
+### README 更新优先级
+
+| 优先级 | 文件 | 原因 |
+|--------|------|------|
+| P0 | 项目根 README.md | 新用户首次接触,需要完整的入门指南 |
+| P1 | app/downloader/docs/README.md | 命令运行方式和输出路径配置最关键 |
+| P2 | app/server/README.md | 清理重复内容,补充集成说明 |
+| P3 | app/web/README.md | 前端配置相对简单,优先级较低 |
+
+---
+
+## Python 代码重复问题分析
+
+### 识别的重复代码模式
+
+#### 1. 日志配置重复
+**位置**:
+- `downloader.py` 中的 `DownloadManager._setup_logging()`
+- `advanced_downloader.py` 中的 `StreamDownloadManager._setup_logging()`
+
+**重复代码**:
+```python
+# 两处完全相同的日志配置
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('download.log', encoding='utf-8'),
+        logging.StreamHandler()
+    ]
+)
+self.logger = logging.getLogger(__name__)
+```
+
+**改进方案**:
+提取到 `utils.py` 中的独立函数:
+```python
+def setup_logger(name: str, log_file: str = 'download.log') -> logging.Logger:
+    """配置并返回日志记录器"""
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(name)
+```
+
+#### 2. 重试处理器重复定义
+**位置**:
+- `downloader.py` 中的 `RetryHandler` 类
+- `advanced_downloader.py` 中缺少该类,但需要导入使用
+
+**重复代码**:
+`RetryHandler` 类在基础版中定义,高级版中应该复用但未明确声明
+
+**改进方案**:
+将 `RetryHandler` 移动到 `utils.py` 作为通用工具类:
+```python
+# utils.py
+class RetryHandler:
+    """重试处理器 - 支持指数退避策略"""
+    
+    def __init__(self, max_retries: int = 3, retry_delay: float = 1.0):
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+    
+    def execute_with_retry(self, func: Callable, *args, **kwargs):
+        """执行函数,失败时重试"""
+        # ...实现代码...
+```
+
+#### 3. 信号处理重复
+**位置**:
+- `DownloadManager._signal_handler()`
+- `StreamDownloadManager._signal_handler()`
+
+**重复代码**:
+```python
+def _signal_handler(self, signum, frame):
+    """信号处理"""
+    if self.logger:
+        self.logger.info("收到中断信号,正在停止下载...")
+    self.stop_flag = True
+```
+
+**改进方案**:
+提取为基类或 Mixin:
+```python
+class DownloadManagerBase:
+    """下载管理器基类"""
+    
+    def __init__(self, config: DownloadConfig):
+        self.config = config
+        self.stop_flag = False
+        self.logger = None
+        self._register_signal_handlers()
+    
+    def _register_signal_handlers(self):
+        """注册信号处理"""
+        signal.signal(signal.SIGINT, self._signal_handler)
+        signal.signal(signal.SIGTERM, self._signal_handler)
+    
+    def _signal_handler(self, signum, frame):
+        """统一的信号处理"""
+        if self.logger:
+            self.logger.info("收到中断信号,正在停止下载...")
+        self.stop_flag = True
+```
+
+#### 4. 文件名提取逻辑重复
+**位置**:
+- `DownloadManager._extract_filename()`
+- 可能在多处使用 URL 提取文件名的逻辑
+
+**重复代码**:
+```python
+def _extract_filename(self, url: str) -> str:
+    """从URL提取文件名"""
+    clean_url = url.split('?')[0]
+    filename = clean_url.split('/')[-1]
+    if '#' in filename:
+        filename = filename.split('#')[0]
+    return filename
+```
+
+**改进方案**:
+移动到 `utils.py` 作为通用函数:
+```python
+def extract_filename_from_url(url: str) -> str:
+    """从URL提取文件名,移除查询参数和片段标识"""
+    clean_url = url.split('?')[0].split('#')[0]
+    return clean_url.split('/')[-1]
+```
+
+#### 5. Session 配置重复
+**位置**:
+- `DownloadManager.__init__()`
+- `StreamDownloadManager.__init__()`
+- `M3U8Parser.__init__()`
+
+**重复代码**:
+```python
+self.session = requests.Session()
+self.session.verify = self.config.verify_ssl
+if not self.config.verify_ssl:
+    warnings.filterwarnings('ignore', category=InsecureRequestWarning)
+self.session.headers.update(self.config.headers)
+```
+
+**改进方案**:
+提取会话创建逻辑:
+```python
+def create_session(config: DownloadConfig) -> requests.Session:
+    """创建配置好的 HTTP 会话"""
+    session = requests.Session()
+    session.verify = config.verify_ssl
+    
+    if not config.verify_ssl:
+        warnings.filterwarnings('ignore', category=InsecureRequestWarning)
+    
+    session.headers.update(config.headers)
+    return session
+```
+
+#### 6. 进度显示逻辑部分重复
+**位置**:
+- `DownloadManager.download_batch()` 中的状态更新
+- `StreamDownloadManager.download_file_stream()` 中的进度显示
+
+**问题**:
+虽然显示方式不同(批量 vs 流式),但都涉及进度计算和格式化
+
+**改进方案**:
+提取进度格式化工具:
+```python
+def format_progress(completed: int, total: int, failed: int = 0) -> str:
+    """格式化进度字符串"""
+    return f"{completed}/{total} 完成, {failed} 失败"
+
+def format_file_size(bytes_count: int) -> str:
+    """格式化文件大小显示"""
+    for unit in ['B', 'KB', 'MB', 'GB']:
+        if bytes_count < 1024.0:
+            return f"{bytes_count:.2f} {unit}"
+        bytes_count /= 1024.0
+    return f"{bytes_count:.2f} TB"
+```
+
+### 代码重构建议架构
+
+#### 重构后的模块结构
+
+```
+app/downloader/core/
+├── __init__.py
+├── config.py              # 配置类和模板(保持不变)
+├── parser.py              # M3U8解析器(保持不变)
+├── base.py                # 新增:基类和共享逻辑
+│   ├── DownloadManagerBase
+│   ├── RetryHandler (从 downloader.py 移入)
+│   └── 共享的初始化逻辑
+├── downloader.py          # 基础下载器(继承 base)
+│   └── M3U8Downloader
+├── advanced_downloader.py # 高级下载器(继承 base)
+│   ├── StreamDownloadManager
+│   └── AdvancedM3U8Downloader
+└── utils.py               # 工具函数(扩充)
+    ├── setup_logger()
+    ├── create_session()
+    ├── extract_filename_from_url()
+    ├── format_progress()
+    ├── format_file_size()
+    └── 其他通用函数
+```
+
+#### 重构策略
+
+**阶段一:提取通用工具** (不影响现有功能)
+1. 创建 `utils.py` 中的新函数
+2. 在原有代码中调用新函数,保持兼容
+3. 测试验证功能不变
+
+**阶段二:创建基类** (渐进式重构)
+1. 创建 `base.py` 定义 `DownloadManagerBase`
+2. 让 `DownloadManager` 和 `StreamDownloadManager` 继承基类
+3. 移动共享方法到基类
+4. 测试验证
+
+**阶段三:清理冗余代码** (优化阶段)
+1. 删除重复的方法实现
+2. 统一使用基类和工具函数
+3. 完整回归测试
+
+### 代码复用设计原则
+
+**保持现有下载方式不变的约束**:
+- ✅ `M3U8Downloader.download()` 接口保持不变
+- ✅ `AdvancedM3U8Downloader` 的 JSON 批量下载保持不变
+- ✅ CLI 命令行参数和交互流程保持不变
+- ✅ 下载逻辑(并发策略、重试机制)保持不变
+
+**只重构内部实现**:
+- 提取重复的工具函数
+- 创建基类共享初始化逻辑
+- 统一日志、Session、信号处理等基础设施代码
+
+### 重构收益估算
+
+| 指标 | 重构前 | 重构后 | 改进 |
+|------|--------|--------|------|
+| 重复代码行数 | ~150 行 | ~20 行 | -87% |
+| 维护成本 | 高(多处修改) | 低(单点修改) | 显著降低 |
+| 测试覆盖 | 需要测试多个副本 | 测试一次复用 | 提高效率 |
+| 代码可读性 | 中等(重复干扰) | 高(结构清晰) | 提升 |
+
+---
+
 ## 项目集成配置
 
 ### Downloader 输出目录配置

@@ -48,24 +48,36 @@ m3u8/
 ### 安装依赖
 
 ```bash
-pip install requests tqdm
+cd d:\project\project\videos\app\downloader
+pip install -r requirements.txt
+# 或使用 uv（推荐）
+uv pip install -r requirements.txt
 ```
+
+**依赖包**：
+- `requests>=2.25.0` - HTTP 请求库
+- `tqdm>=4.60.0` - 进度条显示
 
 ### 命令行使用
 
+**⚠️ 重要**: 必须从 `app` 目录运行命令，而不是 `downloader` 目录！
+
 #### 交互模式
 ```bash
-python -m m3u8.cli -i
+cd d:\project\project\videos\app
+uv run -m downloader.cli.advanced_cli -i
 ```
 
 #### 基本下载
 ```bash
-python -m m3u8.cli https://example.com/video.m3u8
+cd d:\project\project\videos\app
+uv run -m downloader.cli.advanced_cli https://example.com/video.m3u8 -o output.mp4
 ```
 
 #### 自定义参数
 ```bash
-python -m m3u8.cli https://example.com/video.m3u8 -o myvideo.mp4 -t 8 --profile fast
+cd d:\project\project\videos\app
+uv run -m downloader.cli.advanced_cli https://example.com/video.m3u8 -o myvideo.mp4 -t 8 --profile fast
 ```
 
 #### 使用配置模板
@@ -164,6 +176,94 @@ print(f"分辨率: {info['resolution']}")
 - **快速模式**: 高并发，适合带宽充足的环境
 - **稳定模式**: 平衡配置，推荐使用
 - **低带宽模式**: 低并发，适合网络环境较差的情况
+
+## 🔗 集成到 Server
+
+本下载器设计为与视频服务器（app/server）无缝集成，下载的视频会自动被服务器识别和提供服务。
+
+### 配置输出目录到 Server
+
+**方式一：命令行参数指定**
+
+```bash
+cd d:\project\project\videos\app
+uv run -m downloader.cli.advanced_cli \
+  https://example.com/video.m3u8 \
+  -o video.mp4 \
+  --output-dir server/public
+```
+
+**方式二：JSON 配置文件**
+
+创建或编辑 `examples/tasks.example.json`：
+
+```json
+[
+    {
+        "name": "video1",
+        "url": "https://example.com/video1.m3u8",
+        "output_dir": "../server/public",
+        "params": {
+            "quality": "1080p"
+        }
+    }
+]
+```
+
+执行批量下载：
+
+```bash
+cd d:\project\project\videos\app
+uv run -m downloader.cli.advanced_cli \
+  --json downloader/examples/tasks.example.json \
+  --max-concurrent 3
+```
+
+**方式三：修改默认配置**
+
+编辑 `downloader/core/config.py`：
+
+```python
+@dataclass
+class DownloadConfig:
+    # ...
+    output_dir: str = "../server/public"  # 修改默认输出目录
+    # ...
+```
+
+### 下载后刷新 Server
+
+视频下载完成后，需要刷新 Server 数据库让其识别新文件：
+
+```bash
+# 手动触发刷新
+curl http://localhost:3000/api/refresh
+
+# 或在浏览器访问
+http://localhost:3000/api/refresh
+```
+
+### 文件路径最佳实践
+
+下载完成后，文件会保存在：
+
+```
+app/server/public/
+├── video1.mp4           # 单个视频文件
+├── video2.mp4
+└── video1/              # HLS 目录（如果是 m3u8 格式）
+    ├── video1.mp4       # 合并后的 MP4 文件
+    └── index.m3u8
+```
+
+Server 会自动：
+- 扫描 public 目录
+- 识别新增的视频文件
+- 提取元数据（大小、创建时间）
+- 将信息存储到数据库
+- 通过 API 提供访问
+
+---
 
 ## 🔧 高级功能
 

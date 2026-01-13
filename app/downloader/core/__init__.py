@@ -3,7 +3,7 @@ M3U8 Downloader Core Module
 核心下载功能模块
 """
 
-from .downloader import M3U8Downloader, DownloadManager, RetryHandler
+from .downloader import M3U8Downloader, DownloadManager
 from .parser import M3U8Parser
 from .advanced_downloader import (
     AdvancedM3U8Downloader,
@@ -19,14 +19,18 @@ from .utils import (
     Statistics,
     format_file_size,
     format_time,
-    print_banner
+    print_banner,
+    RetryHandler,
+    setup_logger,
+    create_session,
+    extract_filename_from_url,
+    format_progress
 )
 
 __all__ = [
     # 基础下载器
     "M3U8Downloader",
     "DownloadManager",
-    "RetryHandler",
     "M3U8Parser",
     
     # 高级下载器
@@ -46,5 +50,10 @@ __all__ = [
     "Statistics",
     "format_file_size",
     "format_time",
-    "print_banner"
+    "print_banner",
+    "RetryHandler",
+    "setup_logger",
+    "create_session",
+    "extract_filename_from_url",
+    "format_progress"
 ]

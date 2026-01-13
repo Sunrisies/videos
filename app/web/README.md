@@ -56,7 +56,18 @@ interface EnhancedMediaItem {
 
 ## 使用方法
 
-### 1. 基础集成
+### 1. 环境配置
+
+首先，创建 `.env.local` 文件配置 API 地址：
+
+```bash
+# .env.local
+NEXT_PUBLIC_API_URL=http://localhost:3000
+```
+
+如果没有配置，默认使用 `http://localhost:3000` 作为 API 地址。
+
+### 2. 基础集成
 
 ```tsx
 import { MediaPlayer } from "@/components/media-player"
@@ -70,7 +81,7 @@ const media = {
 <MediaPlayer media={media} autoPlay={false} />
 ```
 
-### 2. 与API集成
+### 3. 与API集成
 
 ```tsx
 "use client"
@@ -93,6 +104,83 @@ export default function MediaPage() {
   return <MediaPlayer media={media} />
 }
 ```
+
+## 🚀 快速开始
+
+### 1. 安装依赖
+
+```bash
+cd d:\project\project\videos\app\web
+npm install
+# 或
+pnpm install
+# 或
+yarn install
+```
+
+### 2. 配置环境变量
+
+创建 `.env.local` 文件：
+
+```bash
+# Server API 地址
+NEXT_PUBLIC_API_URL=http://localhost:3000
+```
+
+### 3. 启动开发服务器
+
+```bash
+npm run dev
+# 或
+pnpm dev
+# 或
+yarn dev
+```
+
+应用将在 `http://localhost:3001` 启动（端口可能不同）。
+
+### 4. 构建生产版本
+
+```bash
+npm run build
+npm start
+```
+
+## 🔗 与 Server 集成
+
+### API 调用示例
+
+前端通过环境变量配置的 API 地址访问 Server：
+
+```typescript
+// lib/api.ts
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'
+
+export async function getVideos() {
+  const response = await fetch(`${API_URL}/api/videos`)
+  if (!response.ok) throw new Error('Failed to fetch videos')
+  return response.json()
+}
+
+export async function getVideoDetail(path: string) {
+  const response = await fetch(`${API_URL}/api/videos/${path}`)
+  if (!response.ok) throw new Error('Failed to fetch video detail')
+  return response.json()
+}
+```
+
+### 完整工作流程
+
+1. **Downloader 下载** → 视频保存到 `server/public`
+2. **Server 提供 API** → 扫描 public 目录并提供 RESTful API
+3. **Web 获取列表** → 从 Server API 获取视频列表
+4. **播放视频** → 使用 MediaPlayer 组件播放
+
+### 环境变量说明
+
+| 变量名 | 说明 | 默认值 |
+|--------|------|--------|
+| `NEXT_PUBLIC_API_URL` | Server API 地址 | `http://localhost:3000` |
 
 ## 技术实现
 

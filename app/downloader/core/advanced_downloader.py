@@ -18,6 +18,7 @@ from tqdm import tqdm
 
 from .config import DownloadConfig
 from .parser import M3U8Parser
+from .utils import RetryHandler, setup_logger, create_session, extract_filename_from_url
 
 
 class DownloadTask:
@@ -49,13 +50,8 @@ class StreamDownloadManager:
 
     def __init__(self, config: DownloadConfig = None):
         self.config = config or DownloadConfig()
-        self.session = requests.Session()
-        self.session.verify = self.config.verify_ssl
-
-        if not self.config.verify_ssl:
-            warnings.filterwarnings('ignore', category=InsecureRequestWarning)
-
-        self.session.headers.update(self.config.headers)
+        # 使用 utils.py 中的 create_session 函数
+        self.session = create_session(self.config.verify_ssl, self.config.headers)
 
         # 状态管理
         self.stop_flag = False
@@ -63,9 +59,10 @@ class StreamDownloadManager:
 
         # 日志配置
         if self.config.enable_logging:
-            self._setup_logging()
+            # 使用 utils.py 中的 setup_logger 函数
+            self.logger = setup_logger(__name__)
 
-        # 重试处理器
+        # 重试处理器 - 使用 utils.py 中的 RetryHandler
         self.retry_handler = RetryHandler(
             max_retries=self.config.max_retries,
             retry_delay=self.config.retry_delay
@@ -74,18 +71,6 @@ class StreamDownloadManager:
         # 注册信号处理
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
-
-    def _setup_logging(self):
-        """配置日志"""
-        logging.basicConfig(
-            level=logging.INFO,
-            format='%(asctime)s - %(levelname)s - %(message)s',
-            handlers=[
-                logging.FileHandler('download.log', encoding='utf-8'),
-                logging.StreamHandler()
-            ]
-        )
-        self.logger = logging.getLogger(__name__)
 
     def _signal_handler(self, signum, frame):
         """信号处理"""
@@ -342,11 +327,8 @@ class StreamDownloadManager:
 
     def _extract_filename(self, url: str) -> str:
         """从URL提取文件名"""
-        clean_url = url.split('?')[0]
-        filename = clean_url.split('/')[-1]
-        if '#' in filename:
-            filename = filename.split('#')[0]
-        return filename
+        # 使用 utils.py 中的 extract_filename_from_url 函数
+        return extract_filename_from_url(url)
 
     def get_downloaded_files(self, save_dir: str, urls: List[str]) -> set:
         """获取已下载的文件集合"""
@@ -495,30 +477,6 @@ class JSONTaskLoader:
         data = [task.to_dict() for task in tasks]
         with open(file_path, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
-
-
-class RetryHandler:
-    """重试处理器"""
-
-    def __init__(self, max_retries: int = 3, retry_delay: float = 1.0):
-        self.max_retries = max_retries
-        self.retry_delay = retry_delay
-
-    def execute_with_retry(self, func: Callable, *args, **kwargs):
-        """执行函数，失败时重试"""
-        last_exception = None
-
-        for attempt in range(self.max_retries):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                last_exception = e
-                if attempt < self.max_retries - 1:
-                    time.sleep(self.retry_delay * (2 ** attempt))
-                else:
-                    raise last_exception
-
-        raise last_exception
 
 
 class AdvancedM3U8Downloader:

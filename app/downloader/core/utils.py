@@ -7,9 +7,144 @@ import os
 import sys
 import time
 import json
-from typing import Dict, List, Optional
+import logging
+import signal
+import warnings
+from typing import Dict, List, Optional, Callable
 from urllib.parse import urlparse
 import hashlib
+import requests
+from requests.packages.urllib3.exceptions import InsecureRequestWarning
+
+
+# ==================== 新增: 通用工具函数 ====================
+
+def setup_logger(name: str, log_file: str = 'download.log') -> logging.Logger:
+    """
+    配置并返回日志记录器
+    
+    Args:
+        name: 日志记录器名称
+        log_file: 日志文件路径
+        
+    Returns:
+        logging.Logger: 配置好的日志记录器
+    """
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.FileHandler(log_file, encoding='utf-8'),
+            logging.StreamHandler()
+        ]
+    )
+    return logging.getLogger(name)
+
+
+def create_session(verify_ssl: bool = False, headers: Optional[Dict[str, str]] = None) -> requests.Session:
+    """
+    创建配置好的 HTTP 会话
+    
+    Args:
+        verify_ssl: 是否验证 SSL 证书
+        headers: 自定义请求头
+        
+    Returns:
+        requests.Session: 配置好的会话对象
+    """
+    session = requests.Session()
+    session.verify = verify_ssl
+    
+    if not verify_ssl:
+        warnings.filterwarnings('ignore', category=InsecureRequestWarning)
+    
+    if headers:
+        session.headers.update(headers)
+    
+    return session
+
+
+def extract_filename_from_url(url: str) -> str:
+    """
+    从 URL 提取文件名,移除查询参数和片段标识
+    
+    Args:
+        url: URL 字符串
+        
+    Returns:
+        str: 文件名
+    """
+    clean_url = url.split('?')[0].split('#')[0]
+    return clean_url.split('/')[-1]
+
+
+def format_progress(completed: int, total: int, failed: int = 0) -> str:
+    """
+    格式化进度字符串
+    
+    Args:
+        completed: 已完成数量
+        total: 总数量
+        failed: 失败数量
+        
+    Returns:
+        str: 格式化后的进度字符串
+    """
+    if failed > 0:
+        return f"{completed}/{total} 完成, {failed} 失败"
+    return f"{completed}/{total} 完成"
+
+
+class RetryHandler:
+    """
+    重试处理器 - 支持指数退避策略
+    
+    从 downloader.py 移动到 utils.py 作为通用工具类
+    """
+    
+    def __init__(self, max_retries: int = 3, retry_delay: float = 1.0):
+        """
+        初始化重试处理器
+        
+        Args:
+            max_retries: 最大重试次数
+            retry_delay: 重试延迟(秒)
+        """
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+    
+    def execute_with_retry(self, func: Callable, *args, **kwargs):
+        """
+        执行函数,失败时重试
+        
+        Args:
+            func: 要执行的函数
+            *args: 位置参数
+            **kwargs: 关键字参数
+            
+        Returns:
+            函数执行结果
+            
+        Raises:
+            Exception: 重试失败后抛出最后一次的异常
+        """
+        last_exception = None
+        
+        for attempt in range(self.max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                last_exception = e
+                if attempt < self.max_retries - 1:
+                    # 指数退避
+                    time.sleep(self.retry_delay * (2 ** attempt))
+                else:
+                    raise last_exception
+        
+        raise last_exception
+
+
+# ==================== 原有工具类 ====================
 
 
 class ProgressTracker:
