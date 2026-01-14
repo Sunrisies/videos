@@ -247,9 +247,86 @@ class DownloadManager:
                 downloaded.add(url)
         return downloaded
 
+    # def merge_files(self, file_list: List[str], output_file: str, temp_dir: str) -> bool:
+    #     """
+    #     合并TS文件
+
+    #     Args:
+    #         file_list: 文件URL列表（用于排序）
+    #         output_file: 输出文件路径
+    #         temp_dir: 临时目录
+
+    #     Returns:
+    #         bool: 是否合并成功
+    #     """
+    #     if self.stop_flag:
+    #         return False
+
+    #     try:
+    #         if self.logger:
+    #             self.logger.info("开始合并文件...")
+
+    #         # 按文件名排序
+    #         sorted_files = sorted(
+    #             file_list, key=lambda x: self._extract_filename(x))
+
+    #         if self.config.show_progress:
+    #             merge_bar = tqdm(
+    #                 total=len(sorted_files),
+    #                 desc="合并进度",
+    #                 ncols=60,
+    #                 leave=False,
+    #                 bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'
+    #             )
+    #         else:
+    #             merge_bar = None
+
+    #         with open(output_file, 'wb') as outfile:
+    #             for url in sorted_files:
+    #                 if self.stop_flag:
+    #                     break
+
+    #                 filename = self._extract_filename(url)
+    #                 filepath = os.path.join(temp_dir, filename)
+
+    #                 if os.path.exists(filepath):
+    #                     try:
+    #                         with open(filepath, 'rb') as infile:
+    #                             # 使用缓冲区读取，避免大文件内存问题
+    #                             while True:
+    #                                 chunk = infile.read(
+    #                                     self.config.buffer_size)
+    #                                 if not chunk:
+    #                                     break
+    #                                 outfile.write(chunk)
+
+    #                         # 删除已合并的临时文件
+    #                         os.remove(filepath)
+
+    #                         if merge_bar:
+    #                             merge_bar.update(1)
+
+    #                     except Exception as e:
+    #                         if self.logger:
+    #                             self.logger.warning(
+    #                                 f"合并文件 {filename} 时出错: {e}")
+    #                         continue
+
+    #         if merge_bar:
+    #             merge_bar.close()
+
+    #         if self.logger:
+    #             self.logger.info(f"文件合并完成: {output_file}")
+
+    #         return not self.stop_flag
+
+    #     except Exception as e:
+    #         if self.logger:
+    #             self.logger.error(f"合并文件失败: {e}")
+    #         return False
     def merge_files(self, file_list: List[str], output_file: str, temp_dir: str) -> bool:
         """
-        合并TS文件
+        合并TS文件并转换为MP4
 
         Args:
             file_list: 文件URL列表（用于排序）
@@ -270,6 +347,9 @@ class DownloadManager:
             sorted_files = sorted(
                 file_list, key=lambda x: self._extract_filename(x))
 
+            # 创建临时合并文件
+            temp_merged = os.path.join(temp_dir, "temp_merged.ts")
+            
             if self.config.show_progress:
                 merge_bar = tqdm(
                     total=len(sorted_files),
@@ -281,7 +361,8 @@ class DownloadManager:
             else:
                 merge_bar = None
 
-            with open(output_file, 'wb') as outfile:
+            # 先合并所有TS文件
+            with open(temp_merged, 'wb') as outfile:
                 for url in sorted_files:
                     if self.stop_flag:
                         break
@@ -292,10 +373,8 @@ class DownloadManager:
                     if os.path.exists(filepath):
                         try:
                             with open(filepath, 'rb') as infile:
-                                # 使用缓冲区读取，避免大文件内存问题
                                 while True:
-                                    chunk = infile.read(
-                                        self.config.buffer_size)
+                                    chunk = infile.read(self.config.buffer_size)
                                     if not chunk:
                                         break
                                     outfile.write(chunk)
@@ -308,23 +387,64 @@ class DownloadManager:
 
                         except Exception as e:
                             if self.logger:
-                                self.logger.warning(
-                                    f"合并文件 {filename} 时出错: {e}")
+                                self.logger.warning(f"合并文件 {filename} 时出错: {e}")
                             continue
 
             if merge_bar:
                 merge_bar.close()
 
-            if self.logger:
-                self.logger.info(f"文件合并完成: {output_file}")
+            # 使用ffmpeg将TS转换为MP4
+            if self.stop_flag:
+                if os.path.exists(temp_merged):
+                    os.remove(temp_merged)
+                return False
 
-            return not self.stop_flag
+            if self.logger:
+                self.logger.info("开始转换为MP4格式...")
+
+            try:
+                # 使用ffmpeg进行转换
+                cmd = [
+                    'ffmpeg',
+                    '-i', temp_merged,
+                    '-c', 'copy',  # 直接复制流，不重新编码
+                    '-bsf:a', 'aac_adtstoasc',  # 处理AAC音频流
+                    output_file
+                ]
+                
+                process = subprocess.Popen(
+                    cmd,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    universal_newlines=True
+                )
+                
+                # 等待转换完成
+                _, stderr = process.communicate()
+                
+                if process.returncode != 0:
+                    raise Exception(f"FFmpeg转换失败: {stderr}")
+                
+                if self.logger:
+                    self.logger.info(f"文件转换完成: {output_file}")
+                
+                # 删除临时合并文件
+                if os.path.exists(temp_merged):
+                    os.remove(temp_merged)
+                
+                return True
+
+            except Exception as e:
+                if self.logger:
+                    self.logger.error(f"转换为MP4失败: {e}")
+                # 清理临时文件
+                if os.path.exists(temp_merged):
+                    os.remove(temp_merged)
+                return False
 
         except Exception as e:
             if self.logger:
                 self.logger.error(f"合并文件失败: {e}")
-            return False
-
     def cleanup_temp_dir(self, temp_dir: str):
         """清理临时目录"""
         try:
