@@ -12,3 +12,7 @@ m3u8-advanced-cli = "downloader.cli.advanced_cli:main"
 [build-system]
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["downloader", "downloader.cli", "downloader.core"]
+package-dir = { "downloader" = "." }

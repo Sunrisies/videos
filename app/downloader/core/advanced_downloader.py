@@ -499,7 +499,25 @@ class StreamDownloadManager:
                 self._progress_manager.clear()
                 self._progress_manager = None
 
+            # 清理密钥缓存
+            if self.config.clean_key_cache and self._decryptor:
+                self._decryptor.key_manager.clear_cache()
+                self._cleanup_key_cache_dir()
+
         return results
+
+    def _cleanup_key_cache_dir(self):
+        """清理密钥缓存目录"""
+        try:
+            cache_dir = self.config.key_cache_dir
+            if os.path.exists(cache_dir):
+                import shutil
+                shutil.rmtree(cache_dir)
+                if self.logger:
+                    self.logger.info(f"已清理密钥缓存目录: {cache_dir}")
+        except Exception as e:
+            if self.logger:
+                self.logger.warning(f"清理密钥缓存目录失败: {e}")
 
     def _download_task_with_progress(self, task: DownloadTask) -> bool:
         """
@@ -630,8 +648,14 @@ class StreamDownloadManager:
                 file_list, key=lambda x: self._extract_filename(x))
 
             # 显示合并进度
-            if self.config.show_progress:
-                merge_bar = tqdm(total=len(sorted_files), desc="合并进度")
+            if self.config.show_progress and not self._quiet_mode:
+                merge_bar = tqdm(
+                    total=len(sorted_files),
+                    desc="合并进度",
+                    ncols=60,
+                    leave=False,
+                    bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'
+                )
             else:
                 merge_bar = None
 

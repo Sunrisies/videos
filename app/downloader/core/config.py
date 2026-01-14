@@ -54,6 +54,9 @@ class DownloadConfig:
     # 密钥缓存有效期（秒）
     key_cache_ttl: int = 3600
 
+    # 下载完成后是否清理密钥缓存
+    clean_key_cache: bool = True
+
     # 自定义密钥路径（如果提供，将使用本地密钥而非从 URI 下载）
     custom_key_path: Optional[str] = None
 
@@ -120,6 +123,7 @@ class DownloadConfig:
             'auto_decrypt': self.auto_decrypt,
             'key_cache_dir': self.key_cache_dir,
             'key_cache_ttl': self.key_cache_ttl,
+            'clean_key_cache': self.clean_key_cache,
             'custom_key_path': self.custom_key_path,
             'custom_iv': self.custom_iv,
         }

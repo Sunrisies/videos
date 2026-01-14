@@ -219,7 +219,6 @@ class AdvancedM3U8CLI:
         self.downloader = AdvancedM3U8Downloader(config)
 
         # 加载任务并执行
-        from .advanced_downloader import JSONTaskLoader
         tasks = JSONTaskLoader.load_from_file(json_file, output_dir)
         results = self.downloader.manager.download_batch_tasks(
             tasks, max_concurrent)
