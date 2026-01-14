@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
 use crate::{
-    services::{FileWatcher, VideoDbManager},
+    services::{FileWatcher, VideoDbManager, init_task_queue},
     utils::init_logger,
 };
 
@@ -27,6 +27,9 @@ pub struct AppState {
 #[tokio::main]
 async fn main() {
     init_logger(); // 初始化日志
+
+    // 初始化后台任务队列（最大4个并发任务）
+    init_task_queue(4);
 
     // 从环境变量获取数据源目录，如果未设置则默认为"public"
     let data_source_dir = std::env::var("DATA_SOURCE_DIR").unwrap_or_else(|_| "public".to_string());
@@ -82,6 +85,8 @@ async fn main() {
         .route("/api/watcher/start", get(routes::start_watcher))
         .route("/api/watcher/stop", get(routes::stop_watcher))
         .route("/api/watcher/status", get(routes::get_watcher_status))
+        // 任务队列状态端点
+        .route("/api/tasks/status", get(routes::get_task_queue_status))
         // 静态文件服务，数据源目录下的文件可以通过 /public/... 访问
         .nest_service("/public", ServeDir::new(&data_source_dir))
         // 静态文件服务，thumbnails 目录下的文件可以通过 /thumbnails/... 访问
@@ -94,6 +99,7 @@ async fn main() {
     info!("CORS enabled - allowing all origins");
     info!("Thumbnails directory initialized");
     info!("Database initialized");
+    info!("Background task queue initialized (max 4 concurrent)");
     info!("");
     info!("Available API endpoints:");
     info!("  GET  /api/videos              - List all videos");
@@ -102,6 +108,7 @@ async fn main() {
     info!("  GET  /api/watcher/start       - Start file watcher");
     info!("  GET  /api/watcher/stop        - Stop file watcher");
     info!("  GET  /api/watcher/status      - Get watcher status");
+    info!("  GET  /api/tasks/status        - Get task queue status");
     info!("");
     info!("File watcher is NOT running by default. Use /api/watcher/start to enable auto-sync.");
 

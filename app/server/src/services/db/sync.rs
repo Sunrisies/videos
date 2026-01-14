@@ -1,16 +1,25 @@
+//! 目录同步器
+//!
+//! 负责扫描文件系统并同步数据到数据库，支持：
+//! - 并行文件处理
+//! - 增量扫描
+//! - 双向同步
+
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::{queries, video_types};
+use crate::services::ffmpeg::get_ffmpeg_service;
 use std::time::Instant;
 
 use crate::utils::{
-    check_m3u8_file, format_size, get_created_at, get_ensure_thumbnail, get_m3u8_duration,
-    get_systemtime_created, get_video_dimensions, get_video_duration, has_m3u8_file,
-    is_video_or_container, merge_m3u8_to_mp4,
+    check_m3u8_file, format_size, get_created_at, get_m3u8_duration, get_systemtime_created,
+    has_m3u8_file, is_video_or_container, merge_m3u8_to_mp4,
 };
 use log::{debug, info, warn};
+use rayon::prelude::*;
 use rusqlite::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex as StdMutex;
 use walkdir::WalkDir;
 
 /// 目录同步器
@@ -22,20 +31,27 @@ pub struct DirectorySync<'a> {
 
 /// 文件信息结构体，用于比较文件和数据库记录
 #[derive(Debug, Clone)]
-struct FileInfo {
-    name: String,
-    path: String,
-    created_at: String,
-    file_type: String,
-    parent_path: String,
-    thumbnail: Option<String>,
-    size: Option<String>,
-    subtitle: Option<String>,
-    duration: Option<String>,
-    width: Option<i32>,
-    height: Option<i32>,
+pub struct FileInfo {
+    pub name: String,
+    pub path: String,
+    pub created_at: String,
+    pub file_type: String,
+    pub parent_path: String,
+    pub thumbnail: Option<String>,
+    pub size: Option<String>,
+    pub subtitle: Option<String>,
+    pub duration: Option<String>,
+    pub width: Option<i32>,
+    pub height: Option<i32>,
     /// 文件修改时间戳（用于增量扫描）
-    modified_time: u64,
+    pub modified_time: u64,
+}
+
+/// 待处理的文件条目
+#[derive(Debug, Clone)]
+struct PendingEntry {
+    path: PathBuf,
+    is_m3u8_dir: bool,
 }
 
 impl<'a> DirectorySync<'a> {
@@ -86,20 +102,20 @@ impl<'a> DirectorySync<'a> {
             .as_secs()
             .to_string();
 
-        // 1. 获取数据库中所有记录（包含修改时间）
+        // 1. 获取数据库中所有记录
         let db_records = self.get_all_db_records()?;
         debug!("数据库中记录数: {}", db_records.len());
 
-        // 2. 扫描文件系统，构建文件映射
-        let (fs_files, scan_errors) = self.scan_filesystem(root_path)?;
+        // 2. 并行扫描文件系统
+        let (fs_files, scan_errors) = self.scan_filesystem_parallel(root_path);
         debug!("文件系统扫描到文件数: {}", fs_files.len());
 
-        // 记录扫描错误（仅警告级别）
+        // 记录扫描错误
         for error in &scan_errors {
             warn!("扫描错误: {}", error);
         }
 
-        // 3. 处理新增和变更的文件（文件系统 -> 数据库）
+        // 3. 处理新增和变更的文件
         let mut new_count = 0;
         let mut changed_count = 0;
         let mut skipped_count = 0;
@@ -107,40 +123,34 @@ impl<'a> DirectorySync<'a> {
         for (path, file_info) in &fs_files {
             match db_records.get(path) {
                 None => {
-                    // 文件在数据库中不存在，作为新记录插入
                     self.insert_new_record(file_info, &current_time)?;
                     new_count += 1;
                     debug!("新增: {}", file_info.name);
                 }
                 Some(db_record) => {
-                    // 文件在数据库中存在，检查是否需要更新
-                    // 使用修改时间进行增量判断
                     if self.is_record_changed(file_info, db_record) {
-                        // 数据已变化，硬删除旧记录并插入新记录
                         self.hard_delete_record(path)?;
                         self.insert_new_record(file_info, &current_time)?;
                         changed_count += 1;
                         debug!("更新: {}", file_info.name);
                     } else {
-                        // 数据完全一致，跳过
                         skipped_count += 1;
                     }
                 }
             }
         }
 
-        // 4. 处理删除的文件（数据库 -> 文件系统）
+        // 4. 处理删除的文件
         let mut deleted_count = 0;
         for (path, db_record) in &db_records {
             if !fs_files.contains_key(path) {
-                // 数据库记录对应的文件已不存在，硬删除
                 self.hard_delete_record(path)?;
                 deleted_count += 1;
                 debug!("删除: {}", db_record.name);
             }
         }
 
-        // 仅在有变化时输出统计信息
+        // 输出统计信息
         if new_count > 0 || changed_count > 0 || deleted_count > 0 {
             info!(
                 "同步完成: 新增 {}, 更新 {}, 删除 {}, 跳过 {}",
@@ -176,7 +186,7 @@ impl<'a> DirectorySync<'a> {
                 parent_path: row.get(11)?,
                 width: row.get(12)?,
                 height: row.get(13)?,
-                modified_time: 0, // 数据库记录不需要此字段
+                modified_time: 0,
             };
             records.insert(record.path.clone(), record);
         }
@@ -184,25 +194,27 @@ impl<'a> DirectorySync<'a> {
         Ok(records)
     }
 
-    /// 扫描文件系统，返回文件映射和错误列表
-    fn scan_filesystem(&self, root_path: &str) -> Result<(HashMap<String, FileInfo>, Vec<String>)> {
-        let mut files = HashMap::new();
-        let mut errors = Vec::new();
-
+    /// 并行扫描文件系统
+    fn scan_filesystem_parallel(
+        &self,
+        root_path: &str,
+    ) -> (HashMap<String, FileInfo>, Vec<String>) {
         let root = PathBuf::from(root_path);
 
         // 检查根目录是否存在
         if !root.exists() {
-            errors.push(format!("根目录不存在: {}", root_path));
-            return Ok((files, errors));
+            return (HashMap::new(), vec![format!("根目录不存在: {}", root_path)]);
         }
 
-        // 使用 WalkDir 递归扫描
+        // 第一步：收集所有待处理的文件条目
+        let mut pending_entries: Vec<PendingEntry> = Vec::new();
+        let mut collect_errors: Vec<String> = Vec::new();
+
         for entry in WalkDir::new(&root).max_depth(1).into_iter() {
             let entry = match entry {
                 Ok(e) => e,
                 Err(e) => {
-                    errors.push(format!("无法访问条目: {}", e));
+                    collect_errors.push(format!("无法访问条目: {}", e));
                     continue;
                 }
             };
@@ -219,48 +231,64 @@ impl<'a> DirectorySync<'a> {
                 continue;
             }
 
-            // 处理 m3u8 目录特殊情况
-            if path.is_dir() && has_m3u8_file(path) {
-                debug!("处理 m3u8 目录: {:?}", path);
-                match self.process_m3u8_directory(path, &root) {
-                    Ok(file_info) => {
-                        files.insert(file_info.path.clone(), file_info);
-                    }
-                    Err(e) => {
-                        errors.push(format!("处理 m3u8 目录错误: {}", e));
-                    }
-                }
-                continue;
-            }
+            let is_m3u8_dir = path.is_dir() && has_m3u8_file(path);
+            pending_entries.push(PendingEntry {
+                path: path.to_path_buf(),
+                is_m3u8_dir,
+            });
+        }
 
-            // 处理普通文件和目录
-            match self.process_file_or_directory(path, &root) {
+        debug!("收集到 {} 个待处理条目", pending_entries.len());
+
+        // 第二步：并行处理所有条目
+        let files = StdMutex::new(HashMap::new());
+        let errors = StdMutex::new(collect_errors);
+        let root_ref = &root;
+
+        pending_entries.par_iter().for_each(|entry| {
+            let result = if entry.is_m3u8_dir {
+                Self::process_m3u8_directory_static(&entry.path, root_ref)
+            } else {
+                Self::process_file_static(&entry.path, root_ref)
+            };
+
+            match result {
                 Ok(Some(file_info)) => {
-                    files.insert(file_info.path.clone(), file_info);
+                    let mut files_guard = files.lock().unwrap();
+                    files_guard.insert(file_info.path.clone(), file_info);
                 }
                 Ok(None) => {
                     // 跳过不需要处理的条目
                 }
                 Err(e) => {
-                    errors.push(format!("处理条目错误: {}", e));
+                    let mut errors_guard = errors.lock().unwrap();
+                    errors_guard.push(e);
                 }
             }
-        }
+        });
 
-        Ok((files, errors))
+        let files = files.into_inner().unwrap();
+        let errors = errors.into_inner().unwrap();
+
+        (files, errors)
     }
 
-    /// 处理 m3u8 目录
-    fn process_m3u8_directory(&self, path: &Path, _root: &Path) -> Result<FileInfo> {
+    /// 静态方法：处理 m3u8 目录（用于并行处理）
+    fn process_m3u8_directory_static(
+        path: &Path,
+        _root: &Path,
+    ) -> std::result::Result<Option<FileInfo>, String> {
         let parent_path = path
             .parent()
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
-        let path_str = check_m3u8_file(&path).unwrap_or_default();
-        debug!("m3u8 路径: {:?}", path_str);
-        let _ = merge_m3u8_to_mp4(&path);
 
-        // 使用目录名称作为文件名
+        let path_str = check_m3u8_file(path).unwrap_or_default();
+        debug!("m3u8 路径: {:?}", path_str);
+
+        // 合并 m3u8（如果需要）
+        let _ = merge_m3u8_to_mp4(path);
+
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -269,9 +297,10 @@ impl<'a> DirectorySync<'a> {
 
         let created_at = get_created_at(path).unwrap_or_default();
         let duration = get_m3u8_duration(path);
-        let thumbnail = get_ensure_thumbnail(path);
 
-        // 获取修改时间
+        // 使用统一的 FFmpeg 服务生成缩略图
+        let thumbnail = Self::ensure_thumbnail_static(path);
+
         let modified_time = std::fs::metadata(path)
             .ok()
             .and_then(|m| m.modified().ok())
@@ -279,7 +308,7 @@ impl<'a> DirectorySync<'a> {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        Ok(FileInfo {
+        Ok(Some(FileInfo {
             name,
             path: path_str.to_string_lossy().to_string(),
             created_at,
@@ -292,114 +321,201 @@ impl<'a> DirectorySync<'a> {
             width: None,
             height: None,
             modified_time,
-        })
+        }))
     }
 
-    /// 处理普通文件或目录
-    fn process_file_or_directory(&self, path: &Path, _root: &Path) -> Result<Option<FileInfo>> {
-        if path.is_file() {
-            // 获取文件扩展名
-            let extension = path
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
+    /// 静态方法：处理普通文件（用于并行处理）
+    fn process_file_static(
+        path: &Path,
+        _root: &Path,
+    ) -> std::result::Result<Option<FileInfo>, String> {
+        if !path.is_file() {
+            return Ok(None);
+        }
 
-            // 确定文件类型
-            let r#type = match extension.as_str() {
-                "mp4" => video_types::MP4,
-                "m3u8" => video_types::M3U8,
-                "ts" => video_types::TS,
-                "vtt" | "srt" => video_types::SUBTITLE,
-                "jpg" | "png" | "gif" => video_types::IMAGE,
-                _ => video_types::UNKNOWN,
-            };
+        let extension = path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
 
-            // 对于 ts 文件，如果同一目录下有 m3u8 文件，则跳过
-            if extension == "ts" {
-                if let Some(parent) = path.parent() {
-                    if has_m3u8_file(parent) {
-                        return Ok(None);
-                    }
+        // 确定文件类型
+        let file_type = match extension.as_str() {
+            "mp4" => video_types::MP4,
+            "m3u8" => video_types::M3U8,
+            "ts" => video_types::TS,
+            "vtt" | "srt" => video_types::SUBTITLE,
+            "jpg" | "png" | "gif" => video_types::IMAGE,
+            _ => video_types::UNKNOWN,
+        };
+
+        // 对于 ts 文件，如果同一目录下有 m3u8 文件，则跳过
+        if extension == "ts" {
+            if let Some(parent) = path.parent() {
+                if has_m3u8_file(parent) {
+                    return Ok(None);
                 }
             }
+        }
 
-            let parent_path = path
-                .parent()
-                .map(|p| p.to_string_lossy().to_string())
-                .unwrap_or_default();
+        let parent_path = path
+            .parent()
+            .map(|p| p.to_string_lossy().to_string())
+            .unwrap_or_default();
 
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
 
-            // 获取文件元数据
-            let metadata = std::fs::metadata(path).ok();
-            let size = metadata.as_ref().map(|m| format_size(m.len()));
-            let created_at = metadata
-                .as_ref()
-                .and_then(|m| get_systemtime_created(m))
-                .unwrap_or_default();
+        // 获取文件元数据
+        let metadata = std::fs::metadata(path).ok();
+        let size = metadata.as_ref().map(|m| format_size(m.len()));
+        let created_at = metadata
+            .as_ref()
+            .and_then(|m| get_systemtime_created(m))
+            .unwrap_or_default();
 
-            // 获取修改时间（用于增量扫描）
-            let modified_time = metadata
-                .as_ref()
-                .and_then(|m| m.modified().ok())
-                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-                .map(|d| d.as_secs())
-                .unwrap_or(0);
+        let modified_time = metadata
+            .as_ref()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
 
-            // 生成或获取缩略图路径
-            let thumbnail = get_ensure_thumbnail(path);
+        // 使用统一的 FFmpeg 服务获取视频信息
+        let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
+            let ffmpeg = get_ffmpeg_service();
+            let thumb_path = Self::get_thumbnail_path(path);
 
-            // 获取视频时长和分辨率
-            let (duration, width, height) = if r#type == video_types::MP4 {
-                let dur = get_video_duration(path);
-                let dims = get_video_dimensions(path);
-                (dur, dims.map(|(w, _)| w), dims.map(|(_, h)| h))
+            // 检查缩略图是否已存在
+            if thumb_path.exists() {
+                // 缩略图已存在，单独获取元数据
+                let dur = ffmpeg.get_duration(path);
+                let dims = ffmpeg.get_dimensions(path);
+                (
+                    Some(thumb_path.to_string_lossy().to_string()),
+                    dur,
+                    dims.map(|(w, _)| w),
+                    dims.map(|(_, h)| h),
+                )
             } else {
-                (None, None, None)
-            };
-
-            // 获取字幕路径
-            let subtitle = if r#type == video_types::SUBTITLE {
-                Some(path.to_string_lossy().to_string())
-            } else {
-                None
-            };
-
-            Ok(Some(FileInfo {
-                name,
-                path: path.to_string_lossy().to_string(),
-                created_at,
-                file_type: r#type.to_string(),
-                parent_path,
-                thumbnail,
-                size,
-                subtitle,
-                duration,
-                width,
-                height,
-                modified_time,
-            }))
+                // 使用合并调用一次性获取所有信息
+                let metadata = ffmpeg.extract_video_info(path, &thumb_path);
+                (
+                    metadata.thumbnail_path,
+                    metadata.duration,
+                    metadata.width,
+                    metadata.height,
+                )
+            }
         } else {
-            Ok(None)
+            (Self::ensure_thumbnail_static(path), None, None, None)
+        };
+
+        // 获取字幕路径
+        let subtitle = if file_type == video_types::SUBTITLE {
+            Some(path.to_string_lossy().to_string())
+        } else {
+            None
+        };
+
+        Ok(Some(FileInfo {
+            name,
+            path: path.to_string_lossy().to_string(),
+            created_at,
+            file_type: file_type.to_string(),
+            parent_path,
+            thumbnail,
+            size,
+            subtitle,
+            duration,
+            width,
+            height,
+            modified_time,
+        }))
+    }
+
+    /// 获取缩略图路径
+    fn get_thumbnail_path(file_path: &Path) -> PathBuf {
+        let thumbnails_dir = Path::new("thumbnails");
+        let public_path = Path::new("public");
+
+        let relative_path = file_path.strip_prefix(public_path).unwrap_or(file_path);
+
+        thumbnails_dir.join(relative_path).with_extension("jpg")
+    }
+
+    /// 确保缩略图存在（静态方法）
+    fn ensure_thumbnail_static(file_path: &Path) -> Option<String> {
+        let thumbnail_path = Self::get_thumbnail_path(file_path);
+
+        if thumbnail_path.exists() {
+            return Some(thumbnail_path.to_string_lossy().to_string());
+        }
+
+        // 确保父目录存在
+        if let Some(parent) = thumbnail_path.parent() {
+            if !parent.exists() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+        }
+
+        let ffmpeg = get_ffmpeg_service();
+        let extension = file_path
+            .extension()
+            .and_then(|e| e.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        let success =
+            if extension == "mp4" || extension == "avi" || extension == "mkv" || extension == "mov"
+            {
+                ffmpeg.generate_thumbnail(file_path, &thumbnail_path)
+            } else if extension == "m3u8" {
+                // 对于 m3u8，尝试从第一个 ts 片段生成
+                if let Some(parent) = file_path.parent() {
+                    let index_m3u8 = parent.join("index.m3u8");
+                    if index_m3u8.exists() {
+                        if let Ok(content) = std::fs::read_to_string(&index_m3u8) {
+                            if let Some(ts_line) = content.lines().find(|l| l.ends_with(".ts")) {
+                                let ts_path = parent.join(ts_line.trim());
+                                if ts_path.exists() {
+                                    ffmpeg.generate_thumbnail(&ts_path, &thumbnail_path)
+                                } else {
+                                    ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
+                                }
+                            } else {
+                                ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
+                            }
+                        } else {
+                            ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
+                        }
+                    } else {
+                        ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
+                    }
+                } else {
+                    ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
+                }
+            } else {
+                ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "file")
+            };
+
+        if success && thumbnail_path.exists() {
+            Some(thumbnail_path.to_string_lossy().to_string())
+        } else {
+            None
         }
     }
 
     /// 检查数据库记录是否与文件信息不同
-    /// 使用文件名、创建时间和修改时间进行比较
     fn is_record_changed(&self, file_info: &FileInfo, db_record: &FileInfo) -> bool {
-        // 检查关键字段是否发生变化
-        // 1. 文件名变化
-        // 2. 创建时间变化
-        // 3. 如果之前没有 width/height，现在有了，也需要更新
         file_info.name != db_record.name
             || file_info.created_at != db_record.created_at
             || (db_record.width.is_none() && file_info.width.is_some())
             || (db_record.height.is_none() && file_info.height.is_some())
+            || (db_record.thumbnail.is_none() && file_info.thumbnail.is_some())
     }
 
     /// 插入新记录

@@ -5,6 +5,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use log::info;
 use std::sync::Arc;
 
 use crate::AppState;
@@ -73,6 +74,8 @@ pub async fn get_video_details(
 pub async fn sync_videos(
     State(state): State<Arc<AppState>>,
 ) -> Result<Json<serde_json::Value>, Response> {
+    // 开始时间
+    let start = std::time::Instant::now();
     let db_manager = state.db_manager.lock().unwrap();
     let sync = DirectorySync::new(&db_manager);
 
@@ -87,10 +90,11 @@ pub async fn sync_videos(
                 )
                     .into_response()
             })?;
-
+            let elapsed = start.elapsed();
+            info!("同步消耗时间:{:?}", elapsed);
             Ok(Json(serde_json::json!({
                 "success": true,
-                "message": "Database synchronized successfully",
+                "message": "同步完成",
                 "count": videos.len()
             })))
         }
