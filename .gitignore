@@ -44,3 +44,4 @@ next-env.d.ts
 *.log
 *.mp4
 /app/output
+/app/.key_cache
