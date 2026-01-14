@@ -4,10 +4,10 @@ use std::time::Instant;
 
 use crate::utils::{
     check_m3u8_file, format_size, get_created_at, get_ensure_thumbnail, get_m3u8_duration,
-    get_systemtime_created, get_video_duration, has_m3u8_file, is_video_or_container,
-    merge_m3u8_to_mp4,
+    get_systemtime_created, get_video_dimensions, get_video_duration, has_m3u8_file,
+    is_video_or_container, merge_m3u8_to_mp4,
 };
-use log::info;
+use log::{debug, info, warn};
 use rusqlite::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,10 @@ struct FileInfo {
     size: Option<String>,
     subtitle: Option<String>,
     duration: Option<String>,
+    width: Option<i32>,
+    height: Option<i32>,
+    /// 文件修改时间戳（用于增量扫描）
+    modified_time: u64,
 }
 
 impl<'a> DirectorySync<'a> {
@@ -43,38 +47,29 @@ impl<'a> DirectorySync<'a> {
     /// 从目录初始化数据库（双向同步）
     pub fn initialize_from_directory(&self, root_path: &str, force: bool) -> Result<()> {
         let start_time = Instant::now();
-        info!("=== 开始数据库双向同步: {} ===", root_path);
+        info!("开始数据库同步: {}", root_path);
 
         // 检查数据库是否已初始化
-        let query_start = Instant::now();
         let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_COUNT)?;
         let count: i64 = stmt.query_row([], |row| row.get(0))?;
-        info!("数据库查询耗时: {}ms", query_start.elapsed().as_millis());
 
         if count > 0 && !force {
-            info!("数据库已包含 {} 条记录，执行增量同步...", count);
-            let sync_start = Instant::now();
-            let result = self.bidirectional_sync(root_path)?;
-            info!("增量同步耗时: {}ms", sync_start.elapsed().as_millis());
-            info!("总耗时: {}ms", start_time.elapsed().as_millis());
-            return Ok(result);
+            debug!("数据库已包含 {} 条记录，执行增量同步", count);
+            self.bidirectional_sync(root_path)?;
+            info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
+            return Ok(());
         }
 
         // 如果 force 为 true 或数据库为空，则清除并重新初始化
         if force {
-            info!("请求强制重新初始化，清除现有数据...");
-            let clear_start = Instant::now();
+            info!("强制重新初始化，清除现有数据");
             self.db_manager.conn.execute("DELETE FROM videos", [])?;
-            info!("清除数据耗时: {}ms", clear_start.elapsed().as_millis());
         }
 
         // 执行完整的双向同步
-        let sync_start = Instant::now();
         self.bidirectional_sync(root_path)?;
-        info!("完整同步耗时: {}ms", sync_start.elapsed().as_millis());
 
-        info!("=== 数据库双向同步完成 ===");
-        info!("总耗时: {}ms", start_time.elapsed().as_millis());
+        info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
         Ok(())
     }
 
@@ -85,36 +80,26 @@ impl<'a> DirectorySync<'a> {
 
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
     fn bidirectional_sync(&self, root_path: &str) -> Result<()> {
-        let sync_start = Instant::now();
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs()
             .to_string();
 
-        // 1. 获取数据库中所有未删除的记录
-        let db_start = Instant::now();
+        // 1. 获取数据库中所有记录（包含修改时间）
         let db_records = self.get_all_db_records()?;
-        info!("获取数据库记录耗时: {}ms", db_start.elapsed().as_millis());
-        info!("数据库中未删除记录数: {}", db_records.len());
+        debug!("数据库中记录数: {}", db_records.len());
 
         // 2. 扫描文件系统，构建文件映射
-        let scan_start = Instant::now();
         let (fs_files, scan_errors) = self.scan_filesystem(root_path)?;
-        info!("扫描文件系统耗时: {}ms", scan_start.elapsed().as_millis());
-        info!(
-            "文件系统扫描到文件数: {}, 错误数: {}",
-            fs_files.len(),
-            scan_errors.len()
-        );
+        debug!("文件系统扫描到文件数: {}", fs_files.len());
 
-        // 记录扫描错误
+        // 记录扫描错误（仅警告级别）
         for error in &scan_errors {
-            info!("扫描错误: {}", error);
+            warn!("扫描错误: {}", error);
         }
 
         // 3. 处理新增和变更的文件（文件系统 -> 数据库）
-        let process_start = Instant::now();
         let mut new_count = 0;
         let mut changed_count = 0;
         let mut skipped_count = 0;
@@ -125,16 +110,17 @@ impl<'a> DirectorySync<'a> {
                     // 文件在数据库中不存在，作为新记录插入
                     self.insert_new_record(file_info, &current_time)?;
                     new_count += 1;
-                    info!("新增文件: {}", path);
+                    debug!("新增: {}", file_info.name);
                 }
                 Some(db_record) => {
                     // 文件在数据库中存在，检查是否需要更新
+                    // 使用修改时间进行增量判断
                     if self.is_record_changed(file_info, db_record) {
                         // 数据已变化，硬删除旧记录并插入新记录
                         self.hard_delete_record(path)?;
                         self.insert_new_record(file_info, &current_time)?;
                         changed_count += 1;
-                        info!("变更文件: {}", path);
+                        debug!("更新: {}", file_info.name);
                     } else {
                         // 数据完全一致，跳过
                         skipped_count += 1;
@@ -142,31 +128,31 @@ impl<'a> DirectorySync<'a> {
                 }
             }
         }
-        info!(
-            "处理文件变更耗时: {}ms",
-            process_start.elapsed().as_millis()
-        );
 
         // 4. 处理删除的文件（数据库 -> 文件系统）
-        let delete_start = Instant::now();
         let mut deleted_count = 0;
-        for (path, _db_record) in &db_records {
+        for (path, db_record) in &db_records {
             if !fs_files.contains_key(path) {
                 // 数据库记录对应的文件已不存在，硬删除
                 self.hard_delete_record(path)?;
                 deleted_count += 1;
-                info!("删除文件: {}", path);
+                debug!("删除: {}", db_record.name);
             }
         }
-        info!("处理删除文件耗时: {}ms", delete_start.elapsed().as_millis());
 
-        info!("=== 同步统计 ===");
-        info!("新增文件: {}", new_count);
-        info!("变更文件: {}", changed_count);
-        info!("删除文件: {}", deleted_count);
-        info!("跳过文件: {}", skipped_count);
-        info!("错误数量: {}", scan_errors.len());
-        info!("双向同步总耗时: {}ms", sync_start.elapsed().as_millis());
+        // 仅在有变化时输出统计信息
+        if new_count > 0 || changed_count > 0 || deleted_count > 0 {
+            info!(
+                "同步完成: 新增 {}, 更新 {}, 删除 {}, 跳过 {}",
+                new_count, changed_count, deleted_count, skipped_count
+            );
+        } else {
+            debug!("无变化，跳过 {} 个文件", skipped_count);
+        }
+
+        if !scan_errors.is_empty() {
+            warn!("扫描过程中有 {} 个错误", scan_errors.len());
+        }
 
         Ok(())
     }
@@ -188,6 +174,9 @@ impl<'a> DirectorySync<'a> {
                 created_at: row.get(9)?,
                 subtitle: row.get(10)?,
                 parent_path: row.get(11)?,
+                width: row.get(12)?,
+                height: row.get(13)?,
+                modified_time: 0, // 数据库记录不需要此字段
             };
             records.insert(record.path.clone(), record);
         }
@@ -232,10 +221,9 @@ impl<'a> DirectorySync<'a> {
 
             // 处理 m3u8 目录特殊情况
             if path.is_dir() && has_m3u8_file(path) {
-                info!("处理 m3u8 目录: {:?}", path);
+                debug!("处理 m3u8 目录: {:?}", path);
                 match self.process_m3u8_directory(path, &root) {
                     Ok(file_info) => {
-                        info!("m3u8 目录处理完成: {:?}", file_info);
                         files.insert(file_info.path.clone(), file_info);
                     }
                     Err(e) => {
@@ -269,9 +257,9 @@ impl<'a> DirectorySync<'a> {
             .map(|p| p.to_string_lossy().to_string())
             .unwrap_or_default();
         let path_str = check_m3u8_file(&path).unwrap_or_default();
-        info!("m3u8 目录处理完成:------ {:?}", path_str);
-        let assa = merge_m3u8_to_mp4(&path);
-        info!("------{:?}", assa);
+        debug!("m3u8 路径: {:?}", path_str);
+        let _ = merge_m3u8_to_mp4(&path);
+
         // 使用目录名称作为文件名
         let name = path
             .file_name()
@@ -282,6 +270,15 @@ impl<'a> DirectorySync<'a> {
         let created_at = get_created_at(path).unwrap_or_default();
         let duration = get_m3u8_duration(path);
         let thumbnail = get_ensure_thumbnail(path);
+
+        // 获取修改时间
+        let modified_time = std::fs::metadata(path)
+            .ok()
+            .and_then(|m| m.modified().ok())
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+
         Ok(FileInfo {
             name,
             path: path_str.to_string_lossy().to_string(),
@@ -292,6 +289,9 @@ impl<'a> DirectorySync<'a> {
             size: None,
             subtitle: None,
             duration,
+            width: None,
+            height: None,
+            modified_time,
         })
     }
 
@@ -339,17 +339,28 @@ impl<'a> DirectorySync<'a> {
             let metadata = std::fs::metadata(path).ok();
             let size = metadata.as_ref().map(|m| format_size(m.len()));
             let created_at = metadata
-                .and_then(|m| get_systemtime_created(&m))
+                .as_ref()
+                .and_then(|m| get_systemtime_created(m))
                 .unwrap_or_default();
+
+            // 获取修改时间（用于增量扫描）
+            let modified_time = metadata
+                .as_ref()
+                .and_then(|m| m.modified().ok())
+                .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                .map(|d| d.as_secs())
+                .unwrap_or(0);
 
             // 生成或获取缩略图路径
             let thumbnail = get_ensure_thumbnail(path);
 
-            // 获取视频时长
-            let duration = if r#type == video_types::MP4 {
-                get_video_duration(path)
+            // 获取视频时长和分辨率
+            let (duration, width, height) = if r#type == video_types::MP4 {
+                let dur = get_video_duration(path);
+                let dims = get_video_dimensions(path);
+                (dur, dims.map(|(w, _)| w), dims.map(|(_, h)| h))
             } else {
-                None
+                (None, None, None)
             };
 
             // 获取字幕路径
@@ -369,6 +380,9 @@ impl<'a> DirectorySync<'a> {
                 size,
                 subtitle,
                 duration,
+                width,
+                height,
+                modified_time,
             }))
         } else {
             Ok(None)
@@ -376,17 +390,23 @@ impl<'a> DirectorySync<'a> {
     }
 
     /// 检查数据库记录是否与文件信息不同
+    /// 使用文件名、创建时间和修改时间进行比较
     fn is_record_changed(&self, file_info: &FileInfo, db_record: &FileInfo) -> bool {
         // 检查关键字段是否发生变化
-        // 注意：我们只检查 name 和 created_at，因为 path 是唯一的标识符
-        file_info.name != db_record.name || file_info.created_at != db_record.created_at
+        // 1. 文件名变化
+        // 2. 创建时间变化
+        // 3. 如果之前没有 width/height，现在有了，也需要更新
+        file_info.name != db_record.name
+            || file_info.created_at != db_record.created_at
+            || (db_record.width.is_none() && file_info.width.is_some())
+            || (db_record.height.is_none() && file_info.height.is_some())
     }
 
     /// 插入新记录
     fn insert_new_record(&self, file_info: &FileInfo, current_time: &str) -> Result<()> {
         self.db_manager.conn.execute(
             queries::INSERT_NEW,
-            &[
+            rusqlite::params![
                 &file_info.name,
                 &file_info.path,
                 &file_info.file_type,
@@ -397,6 +417,8 @@ impl<'a> DirectorySync<'a> {
                 &file_info.subtitle.clone().unwrap_or_default(),
                 current_time,
                 &file_info.duration.clone().unwrap_or_default(),
+                &file_info.width,
+                &file_info.height,
             ],
         )?;
         Ok(())

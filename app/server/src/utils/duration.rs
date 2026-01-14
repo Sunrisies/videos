@@ -1,10 +1,8 @@
 use std::{fs, path::Path, process::Command};
-use std::time::Instant;
-use log::info;
+use log::debug;
 
 pub fn get_video_duration(video_path: &Path) -> Option<String> {
-    let start_time = Instant::now();
-    info!("开始获取视频时长: {:?}", video_path);
+    debug!("获取视频时长: {:?}", video_path);
     
     let output = Command::new("ffprobe")
         .arg("-v")
@@ -25,9 +23,38 @@ pub fn get_video_duration(video_path: &Path) -> Option<String> {
     let minutes = (total_seconds % 3600) / 60;
     let seconds = total_seconds % 60;
     
-    info!("获取视频时长完成，耗时: {}ms", start_time.elapsed().as_millis());
     Some(format!("{:02}:{:02}:{:02}", hours, minutes, seconds))
 }
+
+/// 获取视频分辨率（宽度和高度）
+pub fn get_video_dimensions(video_path: &Path) -> Option<(i32, i32)> {
+    debug!("获取视频分辨率: {:?}", video_path);
+    
+    let output = Command::new("ffprobe")
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("v:0")
+        .arg("-show_entries")
+        .arg("stream=width,height")
+        .arg("-of")
+        .arg("csv=s=x:p=0")
+        .arg(video_path)
+        .output()
+        .ok()?;
+
+    let dimensions_str = String::from_utf8_lossy(&output.stdout);
+    let parts: Vec<&str> = dimensions_str.trim().split('x').collect();
+    
+    if parts.len() == 2 {
+        let width: i32 = parts[0].parse().ok()?;
+        let height: i32 = parts[1].parse().ok()?;
+        Some((width, height))
+    } else {
+        None
+    }
+}
+
 pub fn get_m3u8_duration(m3u8_path: &Path) -> Option<String> {
     // 在目录中找到index.m3u8文件
     let index_m3u8 = m3u8_path.join("index.m3u8");
@@ -56,7 +83,7 @@ pub fn get_m3u8_duration(m3u8_path: &Path) -> Option<String> {
         }
     }
 
-    // 将总时长转换为“时:分:秒”格式
+    // 将总时长转换为"时:分:秒"格式
     let hours = (total_duration / 3600.0).floor() as u32;
     let minutes = ((total_duration % 3600.0) / 60.0).floor() as u32;
     let seconds = (total_duration % 60.0).floor() as u32;

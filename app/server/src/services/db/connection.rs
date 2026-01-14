@@ -28,7 +28,9 @@ impl VideoDbManager {
                 created_at TEXT,
                 subtitle TEXT,
                 parent_path TEXT,
-                last_modified INTEGER NOT NULL DEFAULT 0
+                last_modified INTEGER NOT NULL DEFAULT 0,
+                width INTEGER,
+                height INTEGER
             )",
             [],
         )?;
@@ -49,16 +51,21 @@ impl VideoDbManager {
 
 /// 执行数据库迁移
 fn run_migrations(conn: &Connection) -> Result<()> {
-    // 检查 videos 表是否存在 is_deleted 列
+    // 检查 videos 表的列信息
     let mut stmt = conn.prepare("PRAGMA table_info(videos)")?;
     let mut rows = stmt.query([])?;
 
     let mut has_is_deleted = false;
+    let mut has_width = false;
+    let mut has_height = false;
+
     while let Some(row) = rows.next()? {
         let name: String = row.get(1)?;
-        if name == "is_deleted" {
-            has_is_deleted = true;
-            break;
+        match name.as_str() {
+            "is_deleted" => has_is_deleted = true,
+            "width" => has_width = true,
+            "height" => has_height = true,
+            _ => {}
         }
     }
 
@@ -69,7 +76,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         // 1. 删除可能存在的临时表（如果上次迁移失败）
         conn.execute("DROP TABLE IF EXISTS videos_temp", [])?;
 
-        // 2. 创建临时表（不包含 is_deleted）
+        // 2. 创建临时表（不包含 is_deleted，包含 width/height）
         conn.execute(
             "CREATE TABLE videos_temp (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -85,7 +92,9 @@ fn run_migrations(conn: &Connection) -> Result<()> {
                 created_at TEXT,
                 subtitle TEXT,
                 parent_path TEXT,
-                last_modified INTEGER NOT NULL DEFAULT 0
+                last_modified INTEGER NOT NULL DEFAULT 0,
+                width INTEGER,
+                height INTEGER
             )",
             [],
         )?;
@@ -94,7 +103,7 @@ fn run_migrations(conn: &Connection) -> Result<()> {
         conn.execute(
             "INSERT INTO videos_temp 
              SELECT id, name, path, type, thumbnail, duration, size, resolution, 
-                    bitrate, codec, created_at, subtitle, parent_path, last_modified
+                    bitrate, codec, created_at, subtitle, parent_path, last_modified, NULL, NULL
              FROM videos",
             [],
         )?;
@@ -114,7 +123,19 @@ fn run_migrations(conn: &Connection) -> Result<()> {
 
         println!("数据库迁移完成");
     } else {
-        println!("数据库已是最新版本，无需迁移");
+        // 添加 width 和 height 列（如果不存在）
+        if !has_width {
+            conn.execute("ALTER TABLE videos ADD COLUMN width INTEGER", [])?;
+            println!("已添加 width 列");
+        }
+        if !has_height {
+            conn.execute("ALTER TABLE videos ADD COLUMN height INTEGER", [])?;
+            println!("已添加 height 列");
+        }
+
+        if has_width && has_height {
+            println!("数据库已是最新版本，无需迁移");
+        }
     }
 
     Ok(())

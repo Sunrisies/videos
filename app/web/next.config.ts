@@ -5,6 +5,7 @@ const nextConfig: NextConfig = {
   // experimental: {
   //   scrollRestoration: true,
   // },
+  allowedDevOrigins: ['local-origin.dev', '*.local-origin.dev'],
   images: {
     remotePatterns: [
       {

@@ -1,14 +1,15 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useCallback } from "react"
 import { useRouter } from "next/navigation"
 import { VideoListItem } from "@/components/video-list-item"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Search, Grid3x3, List } from "lucide-react"
+import { Search, Grid3x3, List, RefreshCw } from "lucide-react"
 import type { MediaItem } from "@/types/media"
 import { useScrollPosition } from "@/hooks/useScrollPosition"
 import { useAuth } from "@/hooks/useAuth"
+import { useDataCache } from "@/hooks/useDataCache"
 
 // API返回的视频数据接口
 interface ApiVideoItem {
@@ -21,18 +22,18 @@ interface ApiVideoItem {
   duration?: number
   resolution?: string
   bitrate?: string
+  width?: number
+  height?: number
 }
 
-const getVideos = async (): Promise<MediaItem[]> => {
+const fetchVideosFromApi = async (): Promise<MediaItem[]> => {
   const response = await fetch("http://192.168.1.5:3003/api/videos")
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
   const data = await response.json()
-  console.log("Fetched videos:", data)
   // API返回的数据结构是 { videos: [...] }，需要提取数组
   const videos = data.videos || []
-  console.log('videos', videos)
   // 转换字段名以匹配类型定义
   return videos.map((video: ApiVideoItem) => ({
     name: video.name,
@@ -45,6 +46,8 @@ const getVideos = async (): Promise<MediaItem[]> => {
     duration: video.duration || 0,
     resolution: video.resolution || "未知",
     bitrate: video.bitrate || "未知",
+    width: video.width,
+    height: video.height,
   }))
 }
 
@@ -54,12 +57,25 @@ export default function VideosPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [filterType, setFilterType] = useState<string>("all")
-  const [videos, setVideos] = useState<MediaItem[]>([])
-  const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
 
   // 使用自定义Hook来保存和恢复滚动位置
   const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
+
+  // 使用缓存 Hook 获取视频数据
+  const {
+    data: videos,
+    loading,
+    error,
+    refresh,
+    fromCache
+  } = useDataCache<MediaItem[]>(
+    fetchVideosFromApi,
+    {
+      cacheKey: "videos-list",
+      maxAge: 5 * 60 * 1000, // 5分钟缓存
+      backgroundRefresh: true,
+    }
+  )
 
   // 路由守卫：检查授权状态
   useEffect(() => {
@@ -68,27 +84,9 @@ export default function VideosPage() {
     }
   }, [authLoading, isAuthenticated, requireAuth])
 
-  useEffect(() => {
-    const fetchVideos = async () => {
-      try {
-        setLoading(true)
-        const data = await getVideos()
-        setVideos(data)
-        setError(null)
-      } catch (err) {
-        console.error("Error fetching videos:", err)
-        setError("无法加载视频数据，请检查服务器连接")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    fetchVideos()
-  }, [])
-
   // 单独处理滚动位置恢复 - 针对移动端优化
   useEffect(() => {
-    if (!loading && videos.length > 0) {
+    if (!loading && videos && videos.length > 0) {
       // 检查是否从播放页面返回
       const isReturningFromPlay = sessionStorage.getItem("returningFromPlay") === "true"
 
@@ -134,7 +132,7 @@ export default function VideosPage() {
     }
   }, [loading, videos])
 
-  const filteredVideos = videos.filter((video) => {
+  const filteredVideos = (videos || []).filter((video) => {
     const matchesSearch = video.name.toLowerCase().includes(searchQuery.toLowerCase())
     const matchesType = filterType === "all" || video.type === filterType
     return matchesSearch && matchesType
@@ -155,7 +153,18 @@ export default function VideosPage() {
       {/* 顶部导航栏 */}
       <header className="sticky top-0 z-10 bg-card/95 backdrop-blur-sm border-b">
         <div className="container mx-auto px-4 py-4">
-          <h1 className="text-2xl font-bold mb-3">视频库</h1>
+          <div className="flex items-center justify-between mb-3">
+            <h1 className="text-2xl font-bold">视频库</h1>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={refresh}
+              disabled={loading}
+              title="刷新列表"
+            >
+              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            </Button>
+          </div>
 
           {/* 搜索栏 */}
           <div className="relative">
@@ -224,23 +233,18 @@ export default function VideosPage() {
 
       {/* 视频列表 */}
       <main className="container mx-auto px-4 py-6">
-        {loading ? (
+        {loading && !videos ? (
           <div className="text-center py-20">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3"></div>
             <p className="text-lg text-muted-foreground">正在加载视频...</p>
           </div>
-        ) : error ? (
+        ) : error && !videos ? (
           <div className="text-center py-20">
             <p className="text-lg text-red-600 mb-2">错误</p>
             <p className="text-sm text-muted-foreground">{error}</p>
             <Button
               className="mt-4"
-              onClick={() => {
-                setLoading(true)
-                getVideos().then(setVideos).catch(() => {
-                  setError("无法加载视频数据，请检查服务器连接")
-                }).finally(() => setLoading(false))
-              }}
+              onClick={refresh}
             >
               重试
             </Button>
@@ -252,7 +256,12 @@ export default function VideosPage() {
           </div>
         ) : (
           <>
-            <div className="mb-4 text-sm text-muted-foreground">找到 {filteredVideos.length} 个视频</div>
+            <div className="mb-4 text-sm text-muted-foreground flex items-center gap-2">
+              <span>找到 {filteredVideos.length} 个视频</span>
+              {fromCache && (
+                <span className="text-xs px-2 py-0.5 bg-secondary rounded-full">缓存</span>
+              )}
+            </div>
             <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4"}>
               {filteredVideos.map((video, index) => (
                 <VideoListItem key={index} video={video} onClick={() => handleVideoClick(video)} />

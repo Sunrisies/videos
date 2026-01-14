@@ -5,7 +5,6 @@ use std::time::Instant;
 use crate::services::filesystem::{generate_default_thumbnail, generate_video_thumbnail};
 /// 确保缩略图存在，如果不存在则生成
 pub fn get_ensure_thumbnail(file_path: &Path) -> Option<String> {
-    let start_time = Instant::now();
     // 获取缩略图目录
     let thumbnails_path = Path::new("thumbnails");
 
@@ -18,7 +17,6 @@ pub fn get_ensure_thumbnail(file_path: &Path) -> Option<String> {
 
     // 构建缩略图路径
     let thumbnail_path = thumbnails_path.join(relative_path).with_extension("jpg");
-    info!("缩略图路径: {:?}", thumbnail_path);
     // 如果缩略图不存在，则生成
     if !thumbnail_path.exists() {
         let gen_start = Instant::now();
@@ -86,13 +84,8 @@ pub fn get_ensure_thumbnail(file_path: &Path) -> Option<String> {
 
     // 返回缩略图路径（如果生成成功）
     if thumbnail_path.exists() {
-        info!("获取缩略图总耗时: {}ms", start_time.elapsed().as_millis());
         Some(thumbnail_path.to_string_lossy().to_string())
     } else {
-        info!(
-            "获取缩略图失败，总耗时: {}ms",
-            start_time.elapsed().as_millis()
-        );
         None
     }
 }

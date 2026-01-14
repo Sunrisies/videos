@@ -12,6 +12,12 @@ interface MobileVideoPlayerProps {
   autoPlay?: boolean
 }
 
+// 判断是否为竖屏视频
+function isVerticalVideo(width?: number, height?: number): boolean {
+  if (!width || !height) return false
+  return height > width
+}
+
 export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null)
   const [isPlaying, setIsPlaying] = useState(false)
@@ -327,9 +333,16 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     )
   }
 
+  const isVertical = isVerticalVideo(media.width, media.height)
+
   return (
     <div
-      className="relative w-full aspect-video bg-black overflow-hidden touch-none group"
+      className="relative bg-black overflow-hidden touch-none group w-full"
+      style={{
+        aspectRatio: isVertical && media.width && media.height
+          ? `${media.width} / ${media.height}`
+          : '16 / 9'
+      }}
       onTouchStart={handleTouchStart}
       onTouchMove={handleTouchMove}
       onTouchEnd={handleTouchEnd}

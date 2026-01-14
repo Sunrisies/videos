@@ -10,6 +10,8 @@ export interface MediaItem {
   bitrate?: string // 比特率
   createdAt?: string // 创建时间
   subtitle?: string // 字幕路径
+  width?: number // 视频宽度（像素）
+  height?: number // 视频高度（像素）
 }
 
 export interface MediaResponse {

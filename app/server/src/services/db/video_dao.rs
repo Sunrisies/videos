@@ -36,6 +36,8 @@ impl<'a> VideoDao<'a> {
                 codec: row.get(8)?,
                 created_at: row.get(9)?,
                 subtitle: row.get(10)?,
+                width: row.get(12)?,
+                height: row.get(13)?,
             })
         })?;
 
@@ -67,6 +69,8 @@ impl<'a> VideoDao<'a> {
                 codec: row.get(8)?,
                 created_at: row.get(9)?,
                 subtitle: row.get(10)?,
+                width: row.get(11)?,
+                height: row.get(12)?,
             })
         })?;
 
@@ -107,6 +111,8 @@ impl<'a> VideoDao<'a> {
                 codec: row.get(8)?,
                 created_at: row.get(9)?,
                 subtitle: row.get(10)?,
+                width: row.get(11)?,
+                height: row.get(12)?,
             })
         })?;
 
@@ -137,6 +143,8 @@ impl<'a> VideoDao<'a> {
                 codec: row.get(8)?,
                 created_at: row.get(9)?,
                 subtitle: row.get(10)?,
+                width: row.get(11)?,
+                height: row.get(12)?,
             }))
         } else {
             Ok(None)
