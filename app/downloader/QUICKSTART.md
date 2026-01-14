@@ -6,21 +6,43 @@
 
 ```bash
 cd d:\project\project\videos\app\downloader
-pip install -r requirements.txt
+uv sync
 ```
 
-或使用 uv：
+或使用 pip：
 
 ```bash
-cd d:\project\project\videos\app\downloader
-uv pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ## 正确的运行方式
 
 由于 Python 模块导入机制的限制，必须从 **app 目录** 运行命令，而不是从 downloader 目录。
 
-### ✅ 正确方式一：使用模块路径（推荐）
+### ✅ 正确方式一：使用入口点命令（推荐）
+
+```bash
+# 切换到 downloader 目录
+cd d:\project\project\videos\app\downloader
+
+# 安装依赖
+uv sync
+
+# 运行基础 CLI
+uv run m3u8-cli https://example.com/video.m3u8 -o output.mp4
+
+# 运行高级 CLI（单个下载）
+uv run m3u8-advanced-cli https://example.com/video.m3u8 -o output.mp4
+
+# 运行高级 CLI（JSON批量下载）
+uv run m3u8-advanced-cli --json examples/tasks.example.json --max-concurrent 4
+
+# 交互模式
+uv run m3u8-cli -i
+uv run m3u8-advanced-cli -i
+```
+
+### ✅ 正确方式二：使用模块路径
 
 ```bash
 # 切换到 app 目录
@@ -34,19 +56,6 @@ uv run -m downloader.cli.advanced_cli https://example.com/video.m3u8 -o output.m
 
 # 运行高级 CLI（JSON批量下载）
 uv run -m downloader.cli.advanced_cli --json downloader/examples/tasks.example.json --max-concurrent 4
-```
-
-### ✅ 正确方式二：使用便捷脚本
-
-```bash
-# 切换到 downloader 目录
-cd d:\project\project\videos\app\downloader
-
-# 运行基础 CLI
-python run_cli.py https://example.com/video.m3u8 -o output.mp4
-
-# 运行高级 CLI
-python run_advanced_cli.py --json examples/tasks.example.json --max-concurrent 4
 ```
 
 ### ❌ 错误方式
@@ -193,6 +202,71 @@ config = ConfigTemplates.stable()
 
 # 低带宽模式（低并发，适合网络较差）
 config = ConfigTemplates.low_bandwidth()
+
+# 加密视频模式（自动解密 AES-128 加密的 HLS 流）
+config = ConfigTemplates.encrypted()
+
+# 不解密模式（保留原始加密片段）
+config = ConfigTemplates.no_decrypt()
+```
+
+## 加密视频支持
+
+下载器支持 AES-128 加密的 HLS 流，可自动解析 `#EXT-X-KEY` 标签并解密视频片段。
+
+### 自动解密（默认）
+
+默认情况下，下载器会自动检测加密并进行解密：
+
+```python
+from downloader.core.advanced_downloader import AdvancedM3U8Downloader
+from downloader.core.config import ConfigTemplates
+
+# 使用加密模板（推荐）
+config = ConfigTemplates.encrypted()
+downloader = AdvancedM3U8Downloader(config)
+
+success = downloader.download_single(
+    name="encrypted_video",
+    url="https://example.com/encrypted.m3u8",
+    output_dir="./output"
+)
+```
+
+### 自定义密钥和 IV
+
+如果密钥需要手动提供（如本地密钥文件）：
+
+```python
+from downloader.core.config import DownloadConfig
+
+config = DownloadConfig(
+    auto_decrypt=True,
+    custom_key_path="./my_key.key",  # 本地密钥文件路径
+    custom_iv="0x00000000000000000000000000000001"  # 可选：自定义 IV
+)
+```
+
+### 密钥缓存管理
+
+下载器会缓存远程获取的密钥以提升性能：
+
+```python
+config = DownloadConfig(
+    key_cache_dir=".key_cache",  # 密钥缓存目录
+    key_cache_ttl=3600,          # 缓存有效期（秒）
+    clean_key_cache=True         # 下载完成后自动清理缓存
+)
+```
+
+### 保留加密片段
+
+如果不需要解密，可以禁用自动解密：
+
+```python
+config = ConfigTemplates.no_decrypt()
+# 或
+config = DownloadConfig(auto_decrypt=False)
 ```
 
 ## JSON配置文件格式
@@ -238,12 +312,12 @@ config = ConfigTemplates.low_bandwidth()
 **A**: 
 ```bash
 cd d:\project\project\videos\app\downloader
-pip install -r requirements.txt
+uv sync
 ```
 
-或使用 uv：
+或使用 pip：
 ```bash
-uv pip install -r requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Q: 下载速度慢怎么办？
@@ -271,16 +345,15 @@ app/
     ├── core/           # 核心功能模块
     ├── cli/            # 命令行工具
     ├── tests/          # 测试文件
-    ├── examples/       # 示例代码
+    ├── examples/       # 示例配置
     ├── docs/           # 文档
-    ├── run_cli.py      # 便捷启动脚本
-    └── run_advanced_cli.py
+    └── pyproject.toml  # 项目配置和入口点定义
 ```
 
 ### 导入机制
+- 使用入口点时，通过 `pyproject.toml` 中定义的 `m3u8-cli` 和 `m3u8-advanced-cli` 命令运行
 - 从 app 目录运行时，完整路径为 `downloader.cli.advanced_cli`
 - CLI 模块通过相对导入 `..core` 访问核心模块
-- 便捷脚本通过 `sys.path.insert()` 解决路径问题
 
 ## 更多信息
 
