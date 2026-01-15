@@ -14,6 +14,7 @@ from tqdm import tqdm
 from .config import DownloadConfig
 from .download import DownloadTask
 from .json_loader import JSONTaskLoader
+from .merge_files import merge_files
 from .parser import M3U8Parser
 from .crypto import EncryptionInfo, KeyManager, AESDecryptor, CryptoHelper
 from .progress import MultiTaskProgress, SegmentProgressTracker
@@ -321,40 +322,65 @@ class StreamDownloadManager:
             if downloaded:
                 self._safe_print(f"📦 发现 {len(downloaded)} 个已下载的文件\n")
 
-            # 下载未完成的文件（流式，逐个下载）
+            # 下载未完成的文件（使用线程池并发下载）
             remaining_urls = [url for url in ts_files if url not in downloaded]
 
             if remaining_urls:
                 total_count = len(remaining_urls)
                 self._safe_print(f"⬇️  开始下载 {total_count} 个文件...")
+                self._safe_print(f"🚀 使用 {self.config.num_threads} 个线程并发下载")
 
-                # 逐个下载（流式）
+                # 使用线程池并发下载
                 success_count = 0
                 fail_count = 0
+                completed_count = 0
 
                 # 计算已下载文件的数量作为起始索引
                 start_index = len(downloaded)
 
-                for i, url in enumerate(remaining_urls, 1):
-                    if self.stop_flag:
-                        break
+                # 使用线程池并发下载
+                with ThreadPoolExecutor(max_workers=self.config.num_threads) as executor:
+                    # 创建下载任务
+                    futures = {}
+                    for i, url in enumerate(remaining_urls):
+                        if self.stop_flag:
+                            break
 
-                    filename = self._extract_filename(url)
+                        filename = self._extract_filename(url)
+                        segment_index = start_index + i
 
-                    # 传递片段索引用于 IV 计算
-                    segment_index = start_index + (i - 1)
-                    success = self.download_file_stream(
-                        url, task_temp_dir, filename, task.name, segment_index)
+                        future = executor.submit(
+                            self.download_file_stream,
+                            url, task_temp_dir, filename, task.name, segment_index
+                        )
+                        futures[future] = (i, url)
 
-                    if success:
-                        success_count += 1
-                    else:
-                        fail_count += 1
+                    # 等待所有任务完成
+                    for future in as_completed(futures):
+                        if self.stop_flag:
+                            # 取消剩余任务
+                            for f in futures:
+                                f.cancel()
+                            break
 
-                    # 每 10 个文件或最后一个文件时显示进度
-                    if i % 10 == 0 or i == total_count:
-                        self._safe_print(
-                            f"  进度: {i}/{total_count} (成功: {success_count}, 失败: {fail_count})")
+                        i, url = futures[future]
+                        try:
+                            success = future.result()
+                            if success:
+                                success_count += 1
+                            else:
+                                fail_count += 1
+                        except Exception as e:
+                            fail_count += 1
+                            if self.logger:
+                                self.logger.error(f"下载片段 {url} 失败: {e}")
+
+                        completed_count += 1
+
+                        # 每 10 个文件或最后一个文件时显示进度
+                        if completed_count % 10 == 0 or completed_count == total_count:
+                            self._safe_print(
+                                f"  进度: {completed_count}/{total_count} (成功: {success_count}, 失败: {fail_count})")
 
                 self._safe_print(
                     f"\n📊 下载结果: {success_count} 成功, {fail_count} 失败", force=True)
@@ -372,7 +398,7 @@ class StreamDownloadManager:
                 os.makedirs(task.output_dir, exist_ok=True)
 
                 output_file = os.path.join(task.output_dir, f"{task.name}.mp4")
-                success = self.merge_files(
+                success = merge_files(
                     ts_files, output_file, task_temp_dir)
 
                 if success:
@@ -540,23 +566,47 @@ class StreamDownloadManager:
                 for _ in range(len(downloaded)):
                     tracker.on_segment_complete(success=True)
 
-            # 下载未完成的文件
+            # 下载未完成的文件（使用线程池并发下载）
             remaining_urls = [url for url in ts_files if url not in downloaded]
             start_index = len(downloaded)
 
-            for i, url in enumerate(remaining_urls):
-                if self.stop_flag:
-                    break
+            # 使用线程池并发下载
+            with ThreadPoolExecutor(max_workers=self.config.num_threads) as executor:
+                # 创建下载任务
+                futures = {}
+                for i, url in enumerate(remaining_urls):
+                    if self.stop_flag:
+                        break
 
-                filename = self._extract_filename(url)
-                segment_index = start_index + i
+                    filename = self._extract_filename(url)
+                    segment_index = start_index + i
 
-                success = self.download_file_stream(
-                    url, task_temp_dir, filename, task.name, segment_index)
+                    future = executor.submit(
+                        self.download_file_stream,
+                        url, task_temp_dir, filename, task.name, segment_index
+                    )
+                    futures[future] = (i, url, filename)
 
-                if tracker:
-                    tracker.on_segment_complete(
-                        success=success, filename=filename)
+                # 等待所有任务完成
+                for future in as_completed(futures):
+                    if self.stop_flag:
+                        # 取消剩余任务
+                        for f in futures:
+                            f.cancel()
+                        break
+
+                    i, url, filename = futures[future]
+                    try:
+                        success = future.result()
+                        if tracker:
+                            tracker.on_segment_complete(
+                                success=success, filename=filename)
+                    except Exception as e:
+                        if tracker:
+                            tracker.on_segment_complete(
+                                success=False, filename=filename)
+                        if self.logger:
+                            self.logger.error(f"下载片段 {url} 失败: {e}")
 
             # 合并文件
             if not self.stop_flag:
@@ -609,66 +659,6 @@ class StreamDownloadManager:
                 downloaded.add(url)
         return downloaded
 
-    def merge_files(self, file_list: List[str], output_file: str, temp_dir: str) -> bool:
-        """合并TS文件"""
-        if self.stop_flag:
-            return False
-
-        try:
-            # 按文件名排序
-            sorted_files = sorted(
-                file_list, key=lambda x: self._extract_filename(x))
-
-            # 显示合并进度
-            if self.config.show_progress and not self._quiet_mode:
-                merge_bar = tqdm(
-                    total=len(sorted_files),
-                    desc="合并进度",
-                    ncols=60,
-                    leave=False,
-                    bar_format='{desc}: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt}'
-                )
-            else:
-                merge_bar = None
-
-            with open(output_file, 'wb') as outfile:
-                for url in sorted_files:
-                    if self.stop_flag:
-                        break
-
-                    filename = self._extract_filename(url)
-                    filepath = os.path.join(temp_dir, filename)
-
-                    if os.path.exists(filepath):
-                        try:
-                            with open(filepath, 'rb') as infile:
-                                while True:
-                                    chunk = infile.read(
-                                        self.config.buffer_size)
-                                    if not chunk:
-                                        break
-                                    outfile.write(chunk)
-
-                            os.remove(filepath)
-
-                            if merge_bar:
-                                merge_bar.update(1)
-
-                        except Exception as e:
-                            if self.logger:
-                                self.logger.warning(
-                                    f"合并文件 {filename} 时出错: {e}")
-                            continue
-
-            if merge_bar:
-                merge_bar.close()
-
-            return not self.stop_flag
-
-        except Exception as e:
-            if self.logger:
-                self.logger.error(f"合并文件失败: {e}")
-            return False
 
     def cleanup_task_temp_dir(self, task_temp_dir: str):
         """清理任务临时目录"""
