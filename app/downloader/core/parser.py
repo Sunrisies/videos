@@ -8,8 +8,9 @@ import re
 from urllib.parse import urljoin, urlparse
 from typing import List, Dict, Optional, Tuple
 import requests
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
 import warnings
+
+from urllib3.exceptions import InsecureRequestWarning
 
 from .crypto import EncryptionInfo
 

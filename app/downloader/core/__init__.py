@@ -3,7 +3,6 @@ M3U8 Downloader Core Module
 核心下载功能模块
 """
 
-from .downloader import M3U8Downloader, DownloadManager
 from .parser import M3U8Parser, M3U8Info
 from .advanced_downloader import (
     AdvancedM3U8Downloader,
@@ -41,8 +40,6 @@ from .utils import (
 
 __all__ = [
     # 基础下载器
-    "M3U8Downloader",
-    "DownloadManager",
     "M3U8Parser",
     "M3U8Info",
 

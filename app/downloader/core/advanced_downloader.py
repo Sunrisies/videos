@@ -4,51 +4,23 @@
 """
 
 import os
-import json
-import time
+
 import threading
 import signal
-import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Optional, Callable, Any
-import requests
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
-import warnings
+from typing import List, Dict, Optional
 from tqdm import tqdm
 
 from .config import DownloadConfig
+from .download import DownloadTask
+from .json_loader import JSONTaskLoader
 from .parser import M3U8Parser
 from .crypto import EncryptionInfo, KeyManager, AESDecryptor, CryptoHelper
-from .progress import MultiTaskProgress, SegmentProgressTracker, TaskStatus
+from .progress import MultiTaskProgress, SegmentProgressTracker
 from .utils import (
     RetryHandler, setup_logger, create_session, extract_filename_from_url,
     disable_console_logging, enable_console_logging
 )
-
-
-class DownloadTask:
-    """下载任务类"""
-
-    def __init__(self, name: str, url: str, output_dir: str, params: Optional[Dict] = None):
-        self.name = name
-        self.url = url
-        self.output_dir = output_dir
-        self.params = params or {}
-        self.status = "pending"  # pending, downloading, completed, failed
-        self.progress = 0
-        self.message = ""
-
-    def to_dict(self):
-        return {
-            'name': self.name,
-            'url': self.url,
-            'output_dir': self.output_dir,
-            'params': self.params,
-            'status': self.status,
-            'progress': self.progress,
-            'message': self.message
-        }
-
 
 class StreamDownloadManager:
     """流式下载管理器 - 支持实时进度更新、顺序下载和加密解密"""
@@ -712,75 +684,6 @@ class StreamDownloadManager:
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"清理临时目录失败: {e}")
-
-
-class JSONTaskLoader:
-    """JSON任务加载器"""
-
-    @staticmethod
-    def load_from_file(file_path: str, base_output_dir: str) -> List[DownloadTask]:
-        """
-        从JSON文件加载下载任务
-
-        JSON格式示例:
-        [
-            {
-                "name": "video1",
-                "url": "https://example.com/video1.m3u8",
-                "output_dir": "./output/video1",
-                "params": {
-                    "quality": "1080p",
-                    "language": "chinese"
-                }
-            },
-            {
-                "name": "video2", 
-                "url": "https://example.com/video2.m3u8",
-                "output_dir": "./output/video2",
-                "params": {
-                    "quality": "720p"
-                }
-            }
-        ]
-
-        Args:
-            file_path: JSON文件路径
-            base_output_dir: 基础输出目录
-
-        Returns:
-            List[DownloadTask]: 任务列表
-        """
-        if not os.path.exists(file_path):
-            raise FileNotFoundError(f"JSON文件不存在: {file_path}")
-
-        with open(file_path, 'r', encoding='utf-8') as f:
-            data = json.load(f)
-
-        tasks = []
-        for item in data:
-            # 如果output_dir是相对路径，基于base_output_dir
-            output_dir = item.get('output_dir', os.path.join(
-                base_output_dir, item['name']))
-            if not os.path.isabs(output_dir):
-                output_dir = os.path.join(base_output_dir, output_dir)
-
-            task = DownloadTask(
-                name=item['name'],
-                url=item['url'],
-                output_dir=output_dir,
-                params=item.get('params', {})
-            )
-            tasks.append(task)
-
-        return tasks
-
-    @staticmethod
-    def save_to_file(tasks: List[DownloadTask], file_path: str):
-        """保存任务列表到JSON文件"""
-        data = [task.to_dict() for task in tasks]
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-
 
 class AdvancedM3U8Downloader:
     """高级M3U8下载器 - 支持JSON配置和流式下载"""

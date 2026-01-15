@@ -14,7 +14,7 @@ from typing import Dict, List, Optional, Callable
 from urllib.parse import urlparse
 import hashlib
 import requests
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
+from urllib3.exceptions import InsecureRequestWarning
 
 
 # ==================== 新增: 通用工具函数 ====================
@@ -437,12 +437,12 @@ def format_time(seconds: float) -> str:
 def print_banner():
     """打印欢迎横幅"""
     banner = """
-╔══════════════════════════════════════════════════════════════╗
-║                  M3U8 Downloader Pro v2.0                    ║
-║                                                              ║
-║  高性能M3U8视频下载器                                         ║
-║  支持多线程、断点续传、错误重试、智能解析                     ║
-╚══════════════════════════════════════════════════════════════╝
+        ╔══════════════════════════════════════════════════════════════╗
+        ║                  M3U8 Downloader Pro v2.2.2                  ║
+        ║                                                              ║
+        ║  高性能M3U8视频下载器                                        ║
+        ║  支持多线程、断点续传、错误重试、智能解析                    ║
+        ╚══════════════════════════════════════════════════════════════╝
     """
     print(banner)
 
