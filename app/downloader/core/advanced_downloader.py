@@ -100,16 +100,27 @@ class StreamDownloadManager:
         self.stop_flag = True
 
     def merge_files(self, file_list: List[str], output_file: str, temp_dir: str) -> bool:
-        """合并文件 - 委托给FileMerger处理"""
-        self.file_merger.set_stop_flag(self.stop_flag)
-        self.file_merger._quiet_mode = self._quiet_mode
-        return self.file_merger.merge_files(file_list, output_file, temp_dir)
+        """合并文件 - 为每个任务创建独立的FileMerger实例"""
+        # 为当前合并操作创建独立的FileMerger实例
+        merger = FileMerger(
+            config=self.config,
+            logger=self.logger,
+            quiet_mode=self._quiet_mode
+        )
+        merger.set_stop_flag(self.stop_flag)
+        return merger.merge_files(file_list, output_file, temp_dir)
 
     def merge_files_binary(self, sorted_files: List[str], output_file: str, temp_dir: str) -> bool:
-        """二进制合并 - 委托给FileMerger处理"""
-        self.file_merger.set_stop_flag(self.stop_flag)
-        self.file_merger._quiet_mode = self._quiet_mode
-        return self.file_merger.merge_files_binary(sorted_files, output_file, temp_dir)
+        """二进制合并 - 为每个任务创建独立的FileMerger实例"""
+        # 为当前合并操作创建独立的FileMerger实例
+        merger = FileMerger(
+            config=self.config,
+            logger=self.logger,
+            quiet_mode=self._quiet_mode
+        )
+        merger.set_stop_flag(self.stop_flag)
+        return merger.merge_files_binary(sorted_files, output_file, temp_dir)
+
     def download_file_stream(self, url: str, save_path: str, filename: str, task_name: str, segment_index: int = 0) -> bool:
         """
         下载单个文件（流式，实时更新进度）
@@ -305,7 +316,30 @@ class StreamDownloadManager:
             parser = M3U8Parser(verify_ssl=self.config.verify_ssl)
             ts_files, parse_info = parser.parse_m3u8(
                 task.url, self.config.headers)
+            parse_success = False
+             # 使用 RetryHandler 进行重试
+            def _parse_m3u8():
+                nonlocal ts_files, parse_info
+                ts_files, parse_info = parser.parse_m3u8(
+                    task.url, self.config.headers)
+                if not ts_files:
+                    raise ValueError("解析M3U8成功但未找到TS文件列表")
+                return True
+            try:
+                self._safe_print(f"🔍 正在解析 M3U8: {task.url} ...", force=True)
+                if self.logger:
+                    self.logger.info(f"🔍 正在解析 M3U8: {task.url} ...", force=True)
 
+                # 执行重试：如果失败会自动重试，重试次数由 config.max_retries 决定
+                self.retry_handler.execute_with_retry(_parse_m3u8)
+                parse_success = True
+            except Exception as e:
+                self._safe_print(f"❌ 任务 {task.name}: 解析 M3U8 失败，已达最大重试次数 - {e}", force=True)
+                if self.logger:
+                    self.logger.error(f"解析 M3U8 失败: {e}")
+            
+            if not parse_success:
+                return False
             if not ts_files:
                 self._safe_print(f"❌ 任务 {task.name}: 未找到TS文件", force=True)
                 return False
@@ -635,7 +669,7 @@ class StreamDownloadManager:
                     ts_files, output_file, task_temp_dir)
 
                 if success:
-                    self.cleanup_task_temp_dir(task_temp_dir)
+                    # self.cleanup_task_temp_dir(task_temp_dir)
                     if tracker:
                         tracker.finish(success=True)
                     return True
