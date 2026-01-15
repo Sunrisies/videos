@@ -55,7 +55,7 @@ class DownloadConfig:
     key_cache_ttl: int = 3600
 
     # 下载完成后是否清理密钥缓存
-    clean_key_cache: bool = True
+    clean_key_cache: bool = False
 
     # 自定义密钥路径（如果提供，将使用本地密钥而非从 URI 下载）
     custom_key_path: Optional[str] = None

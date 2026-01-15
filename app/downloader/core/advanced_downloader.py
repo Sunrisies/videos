@@ -14,7 +14,7 @@ from tqdm import tqdm
 from .config import DownloadConfig
 from .download import DownloadTask
 from .json_loader import JSONTaskLoader
-from .merge_files import merge_files
+from .merge_files import FileMerger
 from .parser import M3U8Parser
 from .crypto import EncryptionInfo, KeyManager, AESDecryptor, CryptoHelper
 from .progress import MultiTaskProgress, SegmentProgressTracker
@@ -72,6 +72,11 @@ class StreamDownloadManager:
         # 注册信号处理
         signal.signal(signal.SIGINT, self._signal_handler)
         signal.signal(signal.SIGTERM, self._signal_handler)
+        self.file_merger = FileMerger(
+            config=self.config,
+            logger=self.logger,
+            quiet_mode=self._quiet_mode
+        )
 
     def _safe_print(self, message: str, end: str = "\n", flush: bool = True, force: bool = False):
         """
@@ -94,6 +99,17 @@ class StreamDownloadManager:
             self.logger.info("收到中断信号，正在停止下载...")
         self.stop_flag = True
 
+    def merge_files(self, file_list: List[str], output_file: str, temp_dir: str) -> bool:
+        """合并文件 - 委托给FileMerger处理"""
+        self.file_merger.set_stop_flag(self.stop_flag)
+        self.file_merger._quiet_mode = self._quiet_mode
+        return self.file_merger.merge_files(file_list, output_file, temp_dir)
+
+    def merge_files_binary(self, sorted_files: List[str], output_file: str, temp_dir: str) -> bool:
+        """二进制合并 - 委托给FileMerger处理"""
+        self.file_merger.set_stop_flag(self.stop_flag)
+        self.file_merger._quiet_mode = self._quiet_mode
+        return self.file_merger.merge_files_binary(sorted_files, output_file, temp_dir)
     def download_file_stream(self, url: str, save_path: str, filename: str, task_name: str, segment_index: int = 0) -> bool:
         """
         下载单个文件（流式，实时更新进度）
@@ -398,7 +414,7 @@ class StreamDownloadManager:
                 os.makedirs(task.output_dir, exist_ok=True)
 
                 output_file = os.path.join(task.output_dir, f"{task.name}.mp4")
-                success = merge_files(
+                success = self.merge_files(
                     ts_files, output_file, task_temp_dir)
 
                 if success:
