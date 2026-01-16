@@ -10,15 +10,17 @@ import logging
 from typing import Optional, Dict, Tuple
 from dataclasses import dataclass
 
+from urllib3.exceptions import InsecureRequestWarning
+
 try:
     from Crypto.Cipher import AES
     from Crypto.Util.Padding import unpad
+
     CRYPTO_AVAILABLE = True
 except ImportError:
     CRYPTO_AVAILABLE = False
 
 import requests
-from requests.packages.urllib3.exceptions import InsecureRequestWarning
 import warnings
 
 
@@ -63,8 +65,6 @@ class KeyManager:
         """
         self.cache_dir = cache_dir
         self.cache_ttl = cache_ttl
-        # (key, timestamp)
-        self._memory_cache: Dict[str, Tuple[bytes, float]] = {}
         self._session: Optional[requests.Session] = None
         self.logger = logging.getLogger(__name__)
 
@@ -85,14 +85,9 @@ class KeyManager:
 
         return self._session
 
-    def _get_cache_key(self, uri: str) -> str:
-        """生成缓存键"""
-        return hashlib.sha256(uri.encode()).hexdigest()
-
-    def _get_cache_path(self, uri: str) -> str:
+    def get_cache_path(self, name: str) -> str:
         """获取缓存文件路径"""
-        cache_key = self._get_cache_key(uri)
-        return os.path.join(self.cache_dir, f"{cache_key}.key")
+        return os.path.join(self.cache_dir, f"{name}.key")
 
     def _is_cache_valid(self, cache_path: str) -> bool:
         """检查缓存是否有效"""
@@ -103,51 +98,12 @@ class KeyManager:
         mtime = os.path.getmtime(cache_path)
         return (time.time() - mtime) < self.cache_ttl
 
-    def get_key(
-        self,
-        uri: str,
-        verify_ssl: bool = False,
-        headers: Optional[Dict] = None,
-        force_refresh: bool = False
-    ) -> Optional[bytes]:
-        """
-        获取加密密钥
-
-        Args:
-            uri: 密钥 URI
-            verify_ssl: 是否验证 SSL
-            headers: 请求头
-            force_refresh: 强制刷新缓存
-
-        Returns:
-            bytes: 16 字节密钥，失败返回 None
-        """
-        if not uri:
-            return None
-
-        cache_key = self._get_cache_key(uri)
-
-        # 1. 检查内存缓存
-        if not force_refresh and cache_key in self._memory_cache:
-            key_data, timestamp = self._memory_cache[cache_key]
-            if (time.time() - timestamp) < self.cache_ttl:
-                self.logger.debug(f"从内存缓存获取密钥: {uri[:50]}...")
-                return key_data
-
-        # 2. 检查文件缓存
-        cache_path = self._get_cache_path(uri)
-        if not force_refresh and self._is_cache_valid(cache_path):
-            try:
-                with open(cache_path, 'rb') as f:
-                    key_data = f.read()
-
-                # 更新内存缓存
-                self._memory_cache[cache_key] = (key_data, time.time())
-                self.logger.debug(f"从文件缓存获取密钥: {uri[:50]}...")
-                return key_data
-            except Exception as e:
-                self.logger.warning(f"读取缓存密钥失败: {e}")
-
+    # 重写下载密码以及保存到本地
+    def get_key(self, uri: str,
+                name: str,
+                verify_ssl: bool = False,
+                headers: Optional[Dict] = None,
+                force_refresh: bool = False) -> Optional[bytes]:
         # 3. 从网络下载
         try:
             session = self._get_session(verify_ssl, headers)
@@ -165,9 +121,9 @@ class KeyManager:
                     key_data = key_data[:16]
                 else:
                     key_data = key_data.ljust(16, b'\x00')
-
+            print(f"{uri} 密钥: {key_data}...")
             # 保存到缓存
-            self._save_to_cache(uri, key_data)
+            self._save_to_cache(name, key_data)
 
             self.logger.info(f"成功下载密钥: {uri[:50]}...")
             return key_data
@@ -178,12 +134,7 @@ class KeyManager:
 
     def _save_to_cache(self, uri: str, key_data: bytes):
         """保存密钥到缓存"""
-        cache_key = self._get_cache_key(uri)
-        cache_path = self._get_cache_path(uri)
-
-        # 内存缓存
-        self._memory_cache[cache_key] = (key_data, time.time())
-
+        cache_path = self.get_cache_path(uri)
         # 文件缓存
         try:
             with open(cache_path, 'wb') as f:
@@ -193,8 +144,6 @@ class KeyManager:
 
     def clear_cache(self):
         """清除所有缓存"""
-        # 清除内存缓存
-        self._memory_cache.clear()
 
         # 清除文件缓存
         try:
@@ -204,10 +153,6 @@ class KeyManager:
             self.logger.info("密钥缓存已清除")
         except Exception as e:
             self.logger.warning(f"清除密钥缓存失败: {e}")
-
-    def preload_key(self, uri: str, verify_ssl: bool = False, headers: Optional[Dict] = None):
-        """预加载密钥（异步友好）"""
-        self.get_key(uri, verify_ssl, headers)
 
 
 class AESDecryptor:
@@ -231,26 +176,13 @@ class AESDecryptor:
 
         self.key_manager = key_manager or KeyManager()
         self.logger = logging.getLogger(__name__)
-        self._current_key: Optional[bytes] = None
-        self._current_key_uri: Optional[str] = None
-
-    def set_key(self, key: bytes):
-        """
-        直接设置解密密钥
-
-        Args:
-            key: 16 字节 AES 密钥
-        """
-        if len(key) != 16:
-            raise ValueError(f"AES-128 密钥必须是 16 字节，收到 {len(key)} 字节")
-        self._current_key = key
-        self._current_key_uri = None
 
     def load_key_from_uri(
-        self,
-        uri: str,
-        verify_ssl: bool = False,
-        headers: Optional[Dict] = None
+            self,
+            uri: str,
+            name: str,
+            verify_ssl: bool = False,
+            headers: Optional[Dict] = None
     ) -> bool:
         """
         从 URI 加载密钥
@@ -263,15 +195,15 @@ class AESDecryptor:
         Returns:
             bool: 是否成功加载
         """
-        if uri == self._current_key_uri and self._current_key:
-            return True  # 已加载相同密钥
+        # if uri == self._current_key_uri and self._current_key:
+        #     return True  # 已加载相同密钥
 
-        key = self.key_manager.get_key(uri, verify_ssl, headers)
-        if key:
-            self._current_key = key
-            self._current_key_uri = uri
-            return True
-        return False
+        return self.key_manager.get_key(uri, name, verify_ssl, headers)
+        # if key:
+        #     self._current_key = key
+        #     self._current_key_uri = uri
+        #     return True
+        # return False
 
     @staticmethod
     def generate_iv_from_sequence(sequence_number: int) -> bytes:
@@ -310,10 +242,11 @@ class AESDecryptor:
         return bytes.fromhex(iv_string)
 
     def decrypt(
-        self,
-        encrypted_data: bytes,
-        iv: Optional[bytes] = None,
-        sequence_number: int = 0
+            self,
+            encrypted_data: bytes,
+            key: bytes,  # --- 修改：强制要求传入 key ---
+            iv: Optional[bytes] = None,
+            sequence_number: int = 0
     ) -> bytes:
         """
         解密数据
@@ -329,7 +262,7 @@ class AESDecryptor:
         Raises:
             ValueError: 密钥未设置或解密失败
         """
-        if not self._current_key:
+        if not key:
             raise ValueError("解密密钥未设置")
 
         # 生成或使用提供的 IV
@@ -338,7 +271,7 @@ class AESDecryptor:
 
         try:
             # 创建 AES-CBC 解密器
-            cipher = AES.new(self._current_key, AES.MODE_CBC, iv)
+            cipher = AES.new(key, AES.MODE_CBC, iv)
 
             # 解密
             decrypted_data = cipher.decrypt(encrypted_data)
@@ -349,51 +282,11 @@ class AESDecryptor:
             except ValueError:
                 # 某些流可能没有标准填充，直接返回
                 pass
-
             return decrypted_data
 
         except Exception as e:
             self.logger.error(f"解密失败: {e}")
             raise ValueError(f"解密失败: {e}")
-
-    def decrypt_segment(
-        self,
-        encrypted_data: bytes,
-        encryption_info: EncryptionInfo,
-        sequence_number: int = 0,
-        verify_ssl: bool = False,
-        headers: Optional[Dict] = None
-    ) -> bytes:
-        """
-        解密 TS 片段（高级接口）
-
-        Args:
-            encrypted_data: 加密的片段数据
-            encryption_info: 加密信息
-            sequence_number: 片段序列号
-            verify_ssl: 是否验证 SSL
-            headers: 请求头
-
-        Returns:
-            bytes: 解密后的数据
-        """
-        if not encryption_info.is_encrypted():
-            return encrypted_data  # 未加密，直接返回
-
-        if encryption_info.method != "AES-128":
-            raise ValueError(f"不支持的加密方法: {encryption_info.method}")
-
-        # 加载密钥
-        if encryption_info.uri:
-            if not self.load_key_from_uri(encryption_info.uri, verify_ssl, headers):
-                raise ValueError(f"无法获取解密密钥: {encryption_info.uri}")
-
-        # 解密
-        return self.decrypt(
-            encrypted_data,
-            iv=encryption_info.iv,
-            sequence_number=sequence_number
-        )
 
 
 class CryptoHelper:

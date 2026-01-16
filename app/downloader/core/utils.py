@@ -460,3 +460,20 @@ def safe_input(prompt: str, default: str = "") -> str:
         return value if value else default
     except (KeyboardInterrupt, EOFError):
         return default
+
+def check_ts_header(file_path):
+    """检查TS文件头部是否正常"""
+    try:
+        with open(file_path, 'rb') as f:
+            # 读取前4个字节
+            header = f.read(4)
+            # 标准TS包以0x47开头
+            if header[0] == 0x47:
+                print(f"✅ 文件头部正常 (0x47)，可能已解密")
+                return True
+            else:
+                print(f"❌ 文件头部异常 (0x{header[0]:02X})，可能未解密或文件损坏")
+                return False
+    except Exception as e:
+        print(f"读取文件失败: {e}")
+        return False

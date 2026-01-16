@@ -116,7 +116,7 @@ class AdvancedM3U8CLI:
         print("2. JSON批量下载")
         print("3. 创建JSON配置文件")
 
-        mode = safe_input("选择 (1-3) [1]: ", "1")
+        mode = safe_input("选择 (1-3) [2]: ", "2")
 
         if mode == "1":
             return self.single_download_interactive()

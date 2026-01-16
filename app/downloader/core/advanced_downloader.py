@@ -20,7 +20,7 @@ from .crypto import EncryptionInfo, KeyManager, AESDecryptor, CryptoHelper
 from .progress import MultiTaskProgress, SegmentProgressTracker
 from .utils import (
     RetryHandler, setup_logger, create_session, extract_filename_from_url,
-    disable_console_logging, enable_console_logging
+    disable_console_logging, enable_console_logging, check_ts_header
 )
 
 class StreamDownloadManager:
@@ -37,7 +37,7 @@ class StreamDownloadManager:
         self.lock = threading.Lock()
 
         # 输出控制
-        self._quiet_mode = False  # 静默模式，用于并发下载时减少输出
+        self._quiet_mode = True  # 静默模式，用于并发下载时减少输出
         self._output_lock = threading.Lock()  # 输出锁，防止并发输出混乱
 
         # 多任务进度管理器
@@ -78,7 +78,7 @@ class StreamDownloadManager:
             quiet_mode=self._quiet_mode
         )
 
-    def _safe_print(self, message: str, end: str = "\n", flush: bool = True, force: bool = False):
+    def _safe_print(self, message: str, end: str = "\n", flush: bool = False, force: bool = True):
         """
         线程安全的打印函数
 
@@ -102,6 +102,26 @@ class StreamDownloadManager:
     def merge_files(self, file_list: List[str], output_file: str, temp_dir: str) -> bool:
         """合并文件 - 为每个任务创建独立的FileMerger实例"""
         # 为当前合并操作创建独立的FileMerger实例
+        for url in file_list:
+            filename = os.path.basename(url.split('?')[0])
+            print(f"合并文件: {filename}")
+                # filename = self._extract_filename(url)
+            filepath = os.path.join(temp_dir, filename)
+            print(f"当前文件的路径 {filepath}")
+            if os.path.exists(filepath):
+                # 使用绝对路径，避免路径问题
+                abs_path = os.path.abspath(filepath)
+                # 进行校验
+                if check_ts_header(abs_path):
+                    print(f"当前文件已经解密{abs_path}")
+                    self.logger.info(f"当前文件已经解密{abs_path}")
+                else:
+                    self.logger.error(f"当前文件没有解密{abs_path}")
+
+                    print(f"当前文件没有解密{abs_path}")
+
+        if self.logger:
+            self.logger.info(f"合并文件: {file_list} 到 {output_file},temp_dir: {temp_dir}")
         merger = FileMerger(
             config=self.config,
             logger=self.logger,
@@ -110,16 +130,6 @@ class StreamDownloadManager:
         merger.set_stop_flag(self.stop_flag)
         return merger.merge_files(file_list, output_file, temp_dir)
 
-    def merge_files_binary(self, sorted_files: List[str], output_file: str, temp_dir: str) -> bool:
-        """二进制合并 - 为每个任务创建独立的FileMerger实例"""
-        # 为当前合并操作创建独立的FileMerger实例
-        merger = FileMerger(
-            config=self.config,
-            logger=self.logger,
-            quiet_mode=self._quiet_mode
-        )
-        merger.set_stop_flag(self.stop_flag)
-        return merger.merge_files_binary(sorted_files, output_file, temp_dir)
 
     def download_file_stream(self, url: str, save_path: str, filename: str, task_name: str, segment_index: int = 0) -> bool:
         """
@@ -142,7 +152,7 @@ class StreamDownloadManager:
 
         # 检查文件是否已存在
         if os.path.exists(filepath):
-            self._safe_print(f"✓ {task_name}: {filename} 已存在，跳过")
+            print(f"✓ {task_name}: {filename} 已存在，跳过")
             return True
 
         try:
@@ -178,13 +188,31 @@ class StreamDownloadManager:
 
                 # 如果启用解密且有加密信息，解密数据
                 if self._should_decrypt():
-                    # 打印是否需要解密
-                    self._safe_print(f"正在解密 {filename}...")
-                    data = self._decrypt_segment(data, segment_index)
+                    # 读取这个目录下面的task_name 的数据
+                    cache_path =  self._decryptor.key_manager.get_cache_path(task_name)
+                    # 读取这个文件
 
-                # 写入文件
-                with open(filepath, 'wb') as f:
-                    f.write(data)
+                    print(f"cache_path:{cache_path}")
+                    # 2. 检查文件是否存在
+                    if os.path.exists(cache_path):
+                        try:
+                            # 3. 读取文件内容 (二进制模式)
+                            with open(cache_path, 'rb') as f:
+                                key_content = f.read()
+
+                            # 4. 打印或使用内容
+                            print(f"密钥内容 (Hex): {key_content}")
+                            # print(f"密钥内容 (Bytes): {key_content}")
+                            data = self._decrypt_segment(key_content,data, segment_index)
+                            # 写入文件
+                            with open(filepath, 'wb') as f:
+                                f.write(data)
+                        except Exception as e:
+                            print(f"读取缓存文件失败: {e}")
+                    else:
+                        print(f"缓存文件不存在: {cache_path}")
+
+
 
                 return True
 
@@ -211,7 +239,7 @@ class StreamDownloadManager:
             self._encryption_info.is_encrypted()
         )
 
-    def _decrypt_segment(self, data: bytes, segment_index: int) -> bytes:
+    def _decrypt_segment(self, key:bytes,data: bytes, segment_index: int) -> bytes:
         """
         解密片段数据
 
@@ -228,23 +256,22 @@ class StreamDownloadManager:
         try:
             # 计算实际序列号
             sequence_number = self._media_sequence + segment_index
-
             # 使用自定义密钥（如果有）
             custom_key = self.config.get_custom_key()
-            if custom_key:
-                self._decryptor.set_key(custom_key)
+            print(f"自定义密钥: {custom_key},解密片段 {segment_index}，序列号 {sequence_number}",)
 
             # 使用自定义 IV 或根据序列号生成
             iv = self.config.get_custom_iv() or self._encryption_info.iv
 
-            return self._decryptor.decrypt(data, iv=iv, sequence_number=sequence_number)
+            return self._decryptor.decrypt(data,key, iv=iv, sequence_number=sequence_number)
 
         except Exception as e:
+            print(f"解密失败: {e}")
             if self.logger:
                 self.logger.warning(f"解密失败，返回原始数据: {e}")
             return data
 
-    def _setup_encryption(self, parse_info: Dict):
+    def _setup_encryption(self, parse_info: Dict,task: DownloadTask):
         """
         设置加密信息
 
@@ -253,7 +280,9 @@ class StreamDownloadManager:
         """
         if not self.config.auto_decrypt:
             return
-
+        print(f"name:{task.name}")
+        # # 分离文件名和后缀
+        # filename_without_ext, _ = os.path.splitext(filename_with_ext)  # "xxx"
         if not CryptoHelper.is_crypto_available():
             self._safe_print("⚠️ 加密库未安装，无法解密。请运行: pip install pycryptodome")
             return
@@ -280,24 +309,19 @@ class StreamDownloadManager:
             if self._decryptor:
                 success = self._decryptor.load_key_from_uri(
                     self._encryption_info.uri,
+                    task.name,
                     verify_ssl=self.config.verify_ssl,
                     headers=self.config.headers
                 )
                 if success:
-                    self._safe_print("🔐 已加载解密密钥")
+                    print("🔐 已加载解密密钥")
                 else:
-                    self._safe_print(
+                    print(
                         f"⚠️ 无法加载解密密钥: {self._encryption_info.uri}")
 
     def download_task(self, task: DownloadTask) -> bool:
         """
         下载整个任务（M3U8文件及其TS片段）
-
-        Args:
-            task: 下载任务
-
-        Returns:
-            bool: 是否成功
         """
         if self.stop_flag:
             return False
@@ -317,7 +341,8 @@ class StreamDownloadManager:
             ts_files, parse_info = parser.parse_m3u8(
                 task.url, self.config.headers)
             parse_success = False
-             # 使用 RetryHandler 进行重试
+            
+            # 使用 RetryHandler 进行重试
             def _parse_m3u8():
                 nonlocal ts_files, parse_info
                 ts_files, parse_info = parser.parse_m3u8(
@@ -325,12 +350,12 @@ class StreamDownloadManager:
                 if not ts_files:
                     raise ValueError("解析M3U8成功但未找到TS文件列表")
                 return True
+            
             try:
                 self._safe_print(f"🔍 正在解析 M3U8: {task.url} ...", force=True)
                 if self.logger:
                     self.logger.info(f"🔍 正在解析 M3U8: {task.url} ...", force=True)
 
-                # 执行重试：如果失败会自动重试，重试次数由 config.max_retries 决定
                 self.retry_handler.execute_with_retry(_parse_m3u8)
                 parse_success = True
             except Exception as e:
@@ -372,48 +397,53 @@ class StreamDownloadManager:
             if downloaded:
                 self._safe_print(f"📦 发现 {len(downloaded)} 个已下载的文件\n")
 
-            # 下载未完成的文件（使用线程池并发下载）
+            # 下载未完成的文件
             remaining_urls = [url for url in ts_files if url not in downloaded]
 
             if remaining_urls:
                 total_count = len(remaining_urls)
-                self._safe_print(f"⬇️  开始下载 {total_count} 个文件...")
-                self._safe_print(f"🚀 使用 {self.config.num_threads} 个线程并发下载")
+                print(f"⬇️  开始下载 {total_count} 个文件...")
+                print(f"🚀 使用 {self.config.num_threads} 个线程并发下载")
 
-                # 使用线程池并发下载
+                # --- 修改开始 ---
+                # 为了确保索引正确，我们需要建立 URL -> 原始索引 的映射
+                # 这样无论线程怎么乱序执行，都能拿到正确的 segment_index
+                url_to_index_map = {url: i for i, url in enumerate(ts_files)}
+                # --- 修改结束 ---
+
                 success_count = 0
                 fail_count = 0
                 completed_count = 0
 
-                # 计算已下载文件的数量作为起始索引
-                start_index = len(downloaded)
-
                 # 使用线程池并发下载
                 with ThreadPoolExecutor(max_workers=self.config.num_threads) as executor:
-                    # 创建下载任务
                     futures = {}
-                    for i, url in enumerate(remaining_urls):
+                    for url in remaining_urls:
                         if self.stop_flag:
                             break
 
                         filename = self._extract_filename(url)
-                        segment_index = start_index + i
+                        
+                        # --- 修改开始 ---
+                        # 从映射表中获取真实的索引，而不是使用 enumerate(remaining_urls)
+                        segment_index = url_to_index_map.get(url, -1)
+                        # --- 修改结束 ---
 
                         future = executor.submit(
                             self.download_file_stream,
                             url, task_temp_dir, filename, task.name, segment_index
                         )
-                        futures[future] = (i, url)
+                        # 这里存 future 和 url 的映射即可，不需要存 i
+                        futures[future] = url
 
                     # 等待所有任务完成
                     for future in as_completed(futures):
                         if self.stop_flag:
-                            # 取消剩余任务
                             for f in futures:
                                 f.cancel()
                             break
 
-                        i, url = futures[future]
+                        url = futures[future]
                         try:
                             success = future.result()
                             if success:
@@ -427,16 +457,14 @@ class StreamDownloadManager:
 
                         completed_count += 1
 
-                        # 每 10 个文件或最后一个文件时显示进度
                         if completed_count % 10 == 0 or completed_count == total_count:
-                            self._safe_print(
+                            print(
                                 f"  进度: {completed_count}/{total_count} (成功: {success_count}, 失败: {fail_count})")
 
-                self._safe_print(
-                    f"\n📊 下载结果: {success_count} 成功, {fail_count} 失败", force=True)
+                print(f"\n📊 下载结果: {success_count} 成功, {fail_count} 失败", force=True)
 
                 if fail_count > 0 and not self.stop_flag:
-                    self._safe_print("⚠️  部分文件下载失败，继续合并已下载的文件...")
+                    print("⚠️  部分文件下载失败，继续合并已下载的文件...")
             else:
                 self._safe_print("✅ 所有文件已下载完成\n")
 
@@ -444,7 +472,6 @@ class StreamDownloadManager:
             if not self.stop_flag:
                 self._safe_print(f"🔄 开始合并文件到: {task.output_dir}")
 
-                # 确保输出目录存在
                 os.makedirs(task.output_dir, exist_ok=True)
 
                 output_file = os.path.join(task.output_dir, f"{task.name}.mp4")
@@ -454,12 +481,6 @@ class StreamDownloadManager:
                 if success:
                     self._safe_print(
                         f"✅ 任务 {task.name} 完成！输出: {output_file}", force=True)
-
-                    # 清理临时目录
-                    if not self.stop_flag:
-                        self.cleanup_task_temp_dir(task_temp_dir)
-                        self._safe_print(f"🗑️  已清理临时目录: {task_temp_dir}")
-
                     return True
                 else:
                     self._safe_print(f"❌ 任务 {task.name}: 合并失败", force=True)
@@ -475,7 +496,6 @@ class StreamDownloadManager:
             return False
 
         finally:
-            # 清理加密状态
             self._encryption_info = None
             self._media_sequence = 0
 
@@ -534,7 +554,7 @@ class StreamDownloadManager:
 
         finally:
             # 恢复非静默模式
-            self._quiet_mode = False
+            self._quiet_mode = True
 
             # 恢复控制台日志输出
             if self.logger:
@@ -603,7 +623,7 @@ class StreamDownloadManager:
                 tracker.start()
 
             # 设置加密信息
-            self._setup_encryption(parse_info)
+            self._setup_encryption(parse_info,task)
 
             # 创建临时目录
             os.makedirs(task_temp_dir, exist_ok=True)

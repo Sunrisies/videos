@@ -56,7 +56,8 @@ class FileMerger:
         """
         if self.stop_flag:
             return False
-
+        # 先检查这个所有的文件是否解密成功
+        
         try:
             # 按文件名排序
             sorted_files = sorted(
@@ -67,7 +68,7 @@ class FileMerger:
             # 使用任务名称生成唯一的列表文件名
             task_name = os.path.basename(output_file).replace('.mp4', '')
             list_file = os.path.join(temp_dir, f'{task_name}_file_list.txt')
-
+            
             with open(list_file, 'w', encoding='utf-8') as f:
                 for url in sorted_files:
                     filename = self._extract_filename(url)
@@ -115,19 +116,19 @@ class FileMerger:
                 )
 
                 # 清理临时文件
-                if os.path.exists(list_file):
-                    os.remove(list_file)
+                # if os.path.exists(list_file):
+                #     os.remove(list_file)
 
                 # 清理TS文件
-                for url in sorted_files:
-                    filename = self._extract_filename(url)
-                    filepath = os.path.join(temp_dir, filename)
-                    if os.path.exists(filepath):
-                        try:
-                            os.remove(filepath)
-                        except Exception as e:
-                            if self.logger:
-                                self.logger.warning(f"删除临时文件 {filename} 失败: {e}")
+                # for url in sorted_files:
+                #     filename = self._extract_filename(url)
+                #     filepath = os.path.join(temp_dir, filename)
+                #     if os.path.exists(filepath):
+                #         try:
+                #             os.remove(filepath)
+                #         except Exception as e:
+                #             if self.logger:
+                #                 self.logger.warning(f"删除临时文件 {filename} 失败: {e}")
 
                 if self.config.show_progress and not self._quiet_mode:
                     self._safe_print("✅ 文件合并完成")
@@ -190,7 +191,7 @@ class FileMerger:
                                         break
                                     outfile.write(chunk)
 
-                            os.remove(filepath)
+                            # os.remove(filepath)
 
                             if merge_bar:
                                 merge_bar.update(1)
