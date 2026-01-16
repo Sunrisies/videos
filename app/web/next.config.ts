@@ -10,30 +10,12 @@ const nextConfig: NextConfig = {
     remotePatterns: [
       {
         protocol: "http",
-        hostname: "192.168.1.5",
-        port: "3000",
+        hostname: "192.168.10.4",
+        port: "3003",
         pathname: "/**",
       },
     ],
-  },
-  async headers() {
-    return [
-      // {
-      //   source: "/api/:path*",
-      //   headers: [
-      //     { key: "Access-Control-Allow-Origin", value: "*" },
-      //     {
-      //       key: "Access-Control-Allow-Methods",
-      //       value: "GET, POST, PUT, DELETE, OPTIONS",
-      //     },
-      //     {
-      //       key: "Access-Control-Allow-Headers",
-      //       value: "Content-Type, Authorization",
-      //     },
-      //   ],
-      // },
-    ];
-  },
+  }
 };
 
 export default nextConfig;
