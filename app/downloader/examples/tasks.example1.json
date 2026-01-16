@@ -3,5 +3,10 @@
         "name": "sample_video1",
         "url": "https://hd.ijycnd.com/play/hls/negB5Xrd/index.m3u8",
         "output_dir": ""
+    },
+    {
+        "name": "sample_video3",
+        "url": "https://hd.ijycnd.com/play/hls/YerK7ZWa/index.m3u8",
+        "output_dir": ""
     }
 ]

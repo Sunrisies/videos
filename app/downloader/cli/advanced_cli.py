@@ -101,7 +101,7 @@ class AdvancedM3U8CLI:
         if args.no_progress:
             config.show_progress = False
         if args.no_logging:
-            config.enable_logging = False
+            config.enable_logging = True
 
         return config
 

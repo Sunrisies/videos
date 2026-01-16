@@ -464,16 +464,29 @@ def safe_input(prompt: str, default: str = "") -> str:
 def check_ts_header(file_path):
     """检查TS文件头部是否正常"""
     try:
+        if not os.path.exists(file_path):
+            return False
+            
         with open(file_path, 'rb') as f:
-            # 读取前4个字节
-            header = f.read(4)
+            # 读取前188字节（一个TS包的大小）
+            header = f.read(188)
+            if len(header) < 4:
+                return False
+                
             # 标准TS包以0x47开头
             if header[0] == 0x47:
-                print(f"✅ 文件头部正常 (0x47)，可能已解密")
+                # 进一步验证：检查是否连续多个TS包都以0x47开头
+                # 读取更多数据验证
+                f.seek(0)
+                sample_data = f.read(min(1880, os.path.getsize(file_path)))  # 读取前10个TS包
+                if len(sample_data) >= 188:
+                    # 检查前几个TS包的同步字节
+                    valid_count = sum(1 for i in range(0, min(len(sample_data), 1880), 188) 
+                                     if i < len(sample_data) and sample_data[i] == 0x47)
+                    # 至少前3个包应该是有效的
+                    return valid_count >= 3
                 return True
             else:
-                print(f"❌ 文件头部异常 (0x{header[0]:02X})，可能未解密或文件损坏")
                 return False
     except Exception as e:
-        print(f"读取文件失败: {e}")
         return False

@@ -26,13 +26,15 @@ class M3U8Parser:
         self.session = requests.Session()
         self.session.verify = verify_ssl
 
-    def parse_m3u8(self, url: str, headers: Optional[Dict[str, str]] = None) -> Tuple[List[str], Dict]:
+    def parse_m3u8(self, url: str, headers: Optional[Dict[str, str]] = None, save_path: Optional[str] = None, save_dir: Optional[str] = None) -> Tuple[List[str], Dict]:
         """
         解析M3U8文件
 
         Args:
             url: M3U8文件URL
             headers: 请求头
+            save_path: 保存M3U8文件的路径（可选）
+            save_dir: 保存M3U8文件的目录（可选，如果提供则自动生成文件名）
 
         Returns:
             Tuple[List[str], Dict]: (TS文件URL列表, 解析信息)
@@ -49,6 +51,15 @@ class M3U8Parser:
 
             # 解析M3U8内容
             content = response.text
+            
+            # 如果指定了保存路径，将M3U8内容写入文件
+            if save_path:
+                try:
+                    with open(save_path, 'w', encoding='utf-8') as f:
+                        f.write(content)
+                    self.logger.info(f"M3U8文件已保存到: {save_path}")
+                except Exception as e:
+                    self.logger.error(f"保存M3U8文件失败: {e}")
             ts_files = []
             resolution_info = {}
             bandwidth_info = {}
@@ -81,6 +92,8 @@ class M3U8Parser:
                         # 完整URL
                         if line.startswith('http'):
                             ts_files.append(line)
+                            # 先把这个ts文件存储到一个文件里面
+
                         else:
                             # 相对路径
                             ts_files.append(urljoin(base_url, line))
@@ -102,7 +115,6 @@ class M3U8Parser:
                 'is_encrypted': encryption_info.is_encrypted() if encryption_info else False,
                 'media_sequence': media_sequence,
             }
-
             return ts_files, parse_info
 
         except Exception as e:

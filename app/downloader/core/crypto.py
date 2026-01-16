@@ -121,7 +121,7 @@ class KeyManager:
                     key_data = key_data[:16]
                 else:
                     key_data = key_data.ljust(16, b'\x00')
-            print(f"{uri} 密钥: {key_data}...")
+            self.logger.info(f"密钥:{key_data} 保存到:{uri}")
             # 保存到缓存
             self._save_to_cache(name, key_data)
 
