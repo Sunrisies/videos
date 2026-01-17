@@ -4,7 +4,7 @@ import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { MobileVideoPlayer } from "@/components/mobile-video-player"
 import { Button } from "@/components/ui/button"
-import { ChevronLeft, Share2, Clock, FileVideo, Download, Fullscreen } from "lucide-react"
+import { ChevronLeft, Share2, Clock, FileVideo, Download, Fullscreen, Info, X } from "lucide-react"
 import type { MediaItem } from "@/types/media"
 import { useAuth } from "@/hooks/useAuth"
 
@@ -71,6 +71,7 @@ export default function VideoPlayPage() {
   const router = useRouter()
   const { isAuthenticated, isLoading: authLoading, requireAuth } = useAuth()
   const [video, setVideo] = useState<MediaItem | null>(null)
+  const [showDetails, setShowDetails] = useState(false)
 
   // 路由守卫：检查授权状态
   useEffect(() => {
@@ -126,7 +127,7 @@ export default function VideoPlayPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background">
       {/* 顶部导航栏 - 优化为毛玻璃效果 */}
       <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border/50">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between safe-area-top">
@@ -160,25 +161,18 @@ export default function VideoPlayPage() {
       </header>
 
       {/* 主要内容区域 */}
-      <div className="pt-[60px] pb-[80px]">
+      <div className="pt-[60px]">
         {/* 根据视频方向选择不同布局 */}
         {isVerticalVideo(video.width, video.height) ? (
-          // 竖屏视频布局：大屏并排，小屏堆叠
-          <div className="container mx-auto px-4 py-4">
-            <div className="flex flex-col md:flex-row gap-4 md:gap-6 items-start justify-center">
+          // 竖屏视频布局：只显示视频，不显示详情
+          <div className="container mx-auto p-2">
+            <div className="flex justify-center">
               {/* 竖屏视频播放器 */}
-              <div className="w-full md:w-auto flex justify-center">
-                <div
-                  className="relative rounded-xl overflow-hidden shadow-lg border border-border/50 bg-black w-full"
-                  style={{ maxWidth: '400px' }}
-                >
-                  <MobileVideoPlayer media={video} autoPlay />
-                </div>
-              </div>
-
-              {/* 竖屏视频信息卡片 */}
-              <div className="w-full md:flex-1 md:max-w-sm">
-                <VideoInfoCard video={video} />
+              <div
+                className="relative rounded-xl overflow-hidden shadow-lg border border-border/50 bg-black"
+                style={{ maxWidth: '400px' }}
+              >
+                <MobileVideoPlayer media={video} autoPlay />
               </div>
             </div>
           </div>

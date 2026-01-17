@@ -4,9 +4,9 @@ mod services;
 mod utils;
 
 use axum::{
-    Router,
     http::{HeaderName, HeaderValue},
     routing::get,
+    Router,
 };
 use log::info;
 use std::net::SocketAddr;
@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use tower_http::{cors::CorsLayer, services::ServeDir};
 
 use crate::{
-    services::{FileWatcher, VideoDbManager, init_task_queue},
+    services::{init_task_queue, FileWatcher, VideoDbManager},
     utils::init_logger,
 };
 
@@ -77,8 +77,8 @@ async fn main() {
         .route("/", get(|| async { "Hello, World!" }))
         // 列出所有视频文件和目录
         .route("/api/videos", get(routes::list_videos))
-        // 获取指定路径的详细信息（包括子文件）
-        .route("/api/videos/*path", get(routes::get_video_details))
+        // 列出所有视频文件和目录 - 支持分页
+        .route("/api/videos/paginated", get(routes::list_videos_paginated))
         // 手动同步数据库
         .route("/api/sync", get(routes::sync_videos))
         // 文件监听器控制端点
@@ -103,7 +103,7 @@ async fn main() {
     info!("");
     info!("Available API endpoints:");
     info!("  GET  /api/videos              - List all videos");
-    info!("  GET  /api/videos/[path]       - Get video details");
+    info!("  GET  /api/videos/paginated    - List all videos with pagination");
     info!("  GET  /api/sync                - Manual database sync");
     info!("  GET  /api/watcher/start       - Start file watcher");
     info!("  GET  /api/watcher/stop        - Stop file watcher");

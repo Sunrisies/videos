@@ -115,7 +115,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
             const pathParts = videoUrl.split("\\")
             const filename = pathParts[pathParts.length - 1]
             // 使用相对路径访问public目录下的文件
-            videoUrl = `http://192.168.10.4:3003/public/${filename}`
+            videoUrl = `http://192.168.1.10:3003/public/${filename}`
           }
 
           // 如果是MP4文件，直接使用提供的路径
@@ -251,16 +251,16 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
     const touch = e.touches[0]
     const deltaX = touch.clientX - dragStartX
 
-    // 判断是否达到拖动阈值 (10px)
-    if (Math.abs(deltaX) > 10 && !isDragging) {
+    // 判断是否达到拖动阈值 (20px) - 增加阈值防止意外触发
+    if (Math.abs(deltaX) > 20 && !isDragging) {
       setIsDragging(true)
       setShowControls(true)
     }
 
     if (isDragging) {
-      // 计算进度变化：每像素移动对应的时间变化
+      // 计算进度变化：降低灵敏度，每2像素移动对应的时间变化
       const screenWidth = window.innerWidth
-      const deltaTime = (deltaX / screenWidth) * duration
+      const deltaTime = (deltaX / (screenWidth * 2)) * duration
       const newTime = Math.max(0, Math.min(duration, dragStartTime + deltaTime))
 
       setPreviewTime(newTime)
@@ -293,7 +293,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
 
       setIsDragging(false)
       resetControlsTimeout()
-    } else if (Math.abs(deltaX) < 10 && touchDuration < 300) {
+    } else if (Math.abs(deltaX) < 20 && touchDuration < 300) {
       // 识别为单击事件：切换控制栏显示
       setShowControls((prev) => !prev)
 
@@ -352,7 +352,7 @@ export function MobileVideoPlayer({ media, autoPlay = false }: MobileVideoPlayer
         className="w-full h-full object-contain"
         playsInline
         preload="metadata"
-        poster={media.thumbnail ? `http://192.168.10.4:3003/${media.thumbnail}` : undefined}
+        poster={media.thumbnail ? `http://192.168.1.10:3003/${media.thumbnail}` : undefined}
         crossOrigin="anonymous"
       >
         <source type="video/mp4" />

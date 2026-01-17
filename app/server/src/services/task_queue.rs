@@ -226,7 +226,10 @@ impl TaskQueue {
         let mut task_ids = Vec::with_capacity(tasks.len());
 
         for (video_path, thumbnail_path) in tasks {
-            let task_type = TaskType::GenerateThumbnail { video_path, thumbnail_path };
+            let task_type = TaskType::GenerateThumbnail {
+                video_path,
+                thumbnail_path,
+            };
             let id = self.enqueue(task_type, TaskPriority::Normal).await;
             task_ids.push(id);
         }
@@ -258,21 +261,29 @@ async fn execute_task(task: &BackgroundTask) -> std::result::Result<TaskResult, 
     let ffmpeg = get_ffmpeg_service();
 
     match &task.task_type {
-        TaskType::GenerateThumbnail { video_path, thumbnail_path } => {
+        TaskType::GenerateThumbnail {
+            video_path,
+            thumbnail_path,
+        } => {
             if ffmpeg.generate_thumbnail(video_path, thumbnail_path) {
                 Ok(TaskResult::ThumbnailGenerated(thumbnail_path.clone()))
             } else {
                 Err("缩略图生成失败".to_string())
             }
         }
-        TaskType::ExtractMetadata { video_path, thumbnail_path } => {
+        TaskType::ExtractMetadata {
+            video_path,
+            thumbnail_path,
+        } => {
             let metadata = ffmpeg.extract_video_info(video_path, thumbnail_path);
             Ok(TaskResult::MetadataExtracted(metadata))
         }
-        TaskType::MergeM3u8 { m3u8_path, output_path } => {
-            ffmpeg.merge_m3u8_to_mp4(m3u8_path, output_path)
-                .map(|_| TaskResult::M3u8Merged(output_path.clone()))
-        }
+        TaskType::MergeM3u8 {
+            m3u8_path,
+            output_path,
+        } => ffmpeg
+            .merge_m3u8_to_mp4(m3u8_path, output_path)
+            .map(|_| TaskResult::M3u8Merged(output_path.clone())),
     }
 }
 
