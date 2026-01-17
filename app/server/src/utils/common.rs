@@ -4,8 +4,10 @@ use std::{
 };
 
 use chrono::{DateTime, FixedOffset};
+use log::info;
+use std::fs::File;
+use std::io::BufReader;
 use walkdir::WalkDir;
-
 /// 辅助函数：格式化文件大小
 pub fn format_size(bytes: u64) -> String {
     const KB: u64 = 1024;
@@ -49,8 +51,6 @@ pub fn is_video_or_container(path: &Path) -> bool {
     if path.is_file() {
         let extension = path.extension().and_then(|e| e.to_str()).unwrap_or("");
         return extension.eq_ignore_ascii_case("mp4")
-            || extension.eq_ignore_ascii_case("m3u8")
-            || extension.eq_ignore_ascii_case("ts")
             || extension.eq_ignore_ascii_case("vtt")
             || extension.eq_ignore_ascii_case("srt")
             || extension.eq_ignore_ascii_case("jpg")
@@ -109,4 +109,64 @@ pub fn get_files_without_thumbnails(
         .collect();
 
     files_without_thumbnails
+}
+
+#[derive(Debug)]
+pub struct VideoInfo {
+    pub duration: f64, // 秒
+    pub width: u16,
+    pub height: u16,
+    pub codec: String,
+    pub frame_rate: Option<f64>,
+}
+
+pub fn get_video_info(file_path: &str) -> Result<VideoInfo, Box<dyn std::error::Error>> {
+    info!("get_video_info: {}", file_path);
+    // 打开文件并获取大小
+    let file = File::open(file_path)?;
+    let size = file.metadata()?.len();
+    let reader = BufReader::new(file);
+
+    // 快速解析MP4头部
+    let mp4 = mp4::Mp4Reader::read_header(reader, size)?;
+
+    // 获取时长（转换为秒）
+    let duration = mp4.duration().as_secs_f64();
+
+    // 查找视频轨道
+    let mut video_info = VideoInfo {
+        duration,
+        width: 0,
+        height: 0,
+        codec: String::new(),
+        frame_rate: None,
+    };
+
+    for track in mp4.tracks().values() {
+        if let mp4::TrackType::Video = track.track_type()? {
+            video_info.width = track.width();
+            video_info.height = track.height();
+
+            // // 获取编码类型
+            // video_info.codec = match track.codec_type()? {
+            //     mp4::CodecType::H264 => "H.264".to_string(),
+            //     mp4::CodecType::H265 => "H.265/HEVC".to_string(),
+            //     mp4::CodecType::AV1 => "AV1".to_string(),
+            //     mp4::CodecType::VP9 => "VP9".to_string(),
+            //     _ => format!("{:?}", track.codec_type()?),
+            // };
+
+            // // 计算帧率（如果信息可用）
+            // if let (Some(timescale), Some(sample_count)) = (track.timescale(), track.sample_count())
+            // {
+            //     if sample_count > 0 {
+            //         video_info.frame_rate = Some(timescale as f64 / sample_count as f64);
+            //     }
+            // }
+
+            break; // 只取第一个视频轨道
+        }
+    }
+
+    Ok(video_info)
 }

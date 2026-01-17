@@ -1,7 +1,7 @@
 use crate::models::{PaginatedVideoList, PaginationInfo, VideoInfo};
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::queries;
-use rusqlite::Result;
+use rusqlite::{params_from_iter, Result};
 
 /// 视频数据访问对象
 ///
@@ -170,132 +170,29 @@ impl<'a> VideoDao<'a> {
         params_with_pagination.push(page_size_str);
         params_with_pagination.push(offset_str);
 
-        let mut videos: Vec<VideoInfo> = Vec::new();
+        // 将String转换为&str的Vec
+        let param_refs: Vec<&str> = params_with_pagination.iter().map(|s| s.as_str()).collect();
 
-        match params_with_pagination.len() {
-            3 => {
-                let mut video_iter = stmt.query_map(
-                    [
-                        params_with_pagination[0].as_str(),
-                        params_with_pagination[1].as_str(),
-                        params_with_pagination[2].as_str(),
-                    ],
-                    |row| {
-                        Ok(VideoInfo {
-                            name: row.get(0)?,
-                            path: row.get(1)?,
-                            r#type: row.get(2)?,
-                            children: None,
-                            thumbnail: row.get(3)?,
-                            duration: row.get(4)?,
-                            size: row.get(5)?,
-                            resolution: row.get(6)?,
-                            bitrate: row.get(7)?,
-                            codec: row.get(8)?,
-                            created_at: row.get(9)?,
-                            subtitle: row.get(10)?,
-                            width: row.get(11)?,
-                            height: row.get(12)?,
-                        })
-                    },
-                )?;
-                for video in video_iter {
-                    videos.push(video?);
-                }
-            }
-            4 => {
-                let mut video_iter = stmt.query_map(
-                    [
-                        params_with_pagination[0].as_str(),
-                        params_with_pagination[1].as_str(),
-                        params_with_pagination[2].as_str(),
-                        params_with_pagination[3].as_str(),
-                    ],
-                    |row| {
-                        Ok(VideoInfo {
-                            name: row.get(0)?,
-                            path: row.get(1)?,
-                            r#type: row.get(2)?,
-                            children: None,
-                            thumbnail: row.get(3)?,
-                            duration: row.get(4)?,
-                            size: row.get(5)?,
-                            resolution: row.get(6)?,
-                            bitrate: row.get(7)?,
-                            codec: row.get(8)?,
-                            created_at: row.get(9)?,
-                            subtitle: row.get(10)?,
-                            width: row.get(11)?,
-                            height: row.get(12)?,
-                        })
-                    },
-                )?;
-                for video in video_iter {
-                    videos.push(video?);
-                }
-            }
-            5 => {
-                let mut video_iter = stmt.query_map(
-                    [
-                        params_with_pagination[0].as_str(),
-                        params_with_pagination[1].as_str(),
-                        params_with_pagination[2].as_str(),
-                        params_with_pagination[3].as_str(),
-                        params_with_pagination[4].as_str(),
-                    ],
-                    |row| {
-                        Ok(VideoInfo {
-                            name: row.get(0)?,
-                            path: row.get(1)?,
-                            r#type: row.get(2)?,
-                            children: None,
-                            thumbnail: row.get(3)?,
-                            duration: row.get(4)?,
-                            size: row.get(5)?,
-                            resolution: row.get(6)?,
-                            bitrate: row.get(7)?,
-                            codec: row.get(8)?,
-                            created_at: row.get(9)?,
-                            subtitle: row.get(10)?,
-                            width: row.get(11)?,
-                            height: row.get(12)?,
-                        })
-                    },
-                )?;
-                for video in video_iter {
-                    videos.push(video?);
-                }
-            }
-            _ => {
-                let mut video_iter = stmt.query_map(
-                    [
-                        params_with_pagination[0].as_str(),
-                        params_with_pagination[1].as_str(),
-                    ],
-                    |row| {
-                        Ok(VideoInfo {
-                            name: row.get(0)?,
-                            path: row.get(1)?,
-                            r#type: row.get(2)?,
-                            children: None,
-                            thumbnail: row.get(3)?,
-                            duration: row.get(4)?,
-                            size: row.get(5)?,
-                            resolution: row.get(6)?,
-                            bitrate: row.get(7)?,
-                            codec: row.get(8)?,
-                            created_at: row.get(9)?,
-                            subtitle: row.get(10)?,
-                            width: row.get(11)?,
-                            height: row.get(12)?,
-                        })
-                    },
-                )?;
-                for video in video_iter {
-                    videos.push(video?);
-                }
-            }
-        }
+        let videos = stmt
+            .query_map(params_from_iter(param_refs.iter()), |row| {
+                Ok(VideoInfo {
+                    name: row.get(0)?,
+                    path: row.get(1)?,
+                    r#type: row.get(2)?,
+                    children: None,
+                    thumbnail: row.get(3)?,
+                    duration: row.get(4)?,
+                    size: row.get(5)?,
+                    resolution: row.get(6)?,
+                    bitrate: row.get(7)?,
+                    codec: row.get(8)?,
+                    created_at: row.get(9)?,
+                    subtitle: row.get(10)?,
+                    width: row.get(11)?,
+                    height: row.get(12)?,
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
 
         // 计算分页信息
         let total_pages = ((total as f64) / (page_size as f64)).ceil() as u32;

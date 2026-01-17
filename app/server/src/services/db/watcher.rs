@@ -173,7 +173,7 @@ fn is_video_related_path(path: &Path) -> bool {
         let ext_str = ext.to_string_lossy().to_lowercase();
         matches!(
             ext_str.as_str(),
-            "mp4" | "m3u8" | "ts" | "vtt" | "srt" | "jpg" | "png" | "gif"
+            "mp4" | "vtt" | "srt" | "jpg" | "png" | "gif"
         )
     } else {
         false

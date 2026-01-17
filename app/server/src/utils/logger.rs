@@ -1,10 +1,10 @@
 use log::Level;
 use log4rs::{
     append::console::ConsoleAppender,
-    append::rolling_file::RollingFileAppender,
-    append::rolling_file::policy::compound::CompoundPolicy,
     append::rolling_file::policy::compound::roll::fixed_window::FixedWindowRoller,
     append::rolling_file::policy::compound::trigger::size::SizeTrigger,
+    append::rolling_file::policy::compound::CompoundPolicy,
+    append::rolling_file::RollingFileAppender,
     config::{Appender, Config, Root},
     encode::pattern::PatternEncoder,
 };
@@ -91,7 +91,7 @@ pub fn init_logger() {
             Root::builder()
                 .appender("stdout")
                 .appender("file")
-                .build(LevelFilter::Info),
+                .build(LevelFilter::Debug),
         )
         .unwrap();
 

@@ -10,7 +10,7 @@ use crate::services::db::schema::{queries, video_types};
 use crate::services::ffmpeg::get_ffmpeg_service;
 use std::time::Instant;
 
-use crate::utils::{format_size, get_systemtime_created, is_video_or_container};
+use crate::utils::{format_size, get_systemtime_created, get_video_info, is_video_or_container};
 use log::{debug, info, warn};
 use rayon::prelude::*;
 use rusqlite::Result;
@@ -64,12 +64,11 @@ impl<'a> DirectorySync<'a> {
         let count: i64 = stmt.query_row([], |row| row.get(0))?;
 
         if count > 0 && !force {
-            debug!("数据库已包含 {} 条记录，执行增量同步", count);
+            info!("数据库已包含 {} 条记录，执行增量同步", count);
             self.bidirectional_sync(root_path)?;
             info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
             return Ok(());
         }
-
         // 如果 force 为 true 或数据库为空，则清除并重新初始化
         if force {
             info!("强制重新初始化，清除现有数据");
@@ -90,6 +89,7 @@ impl<'a> DirectorySync<'a> {
 
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
     fn bidirectional_sync(&self, root_path: &str) -> Result<()> {
+        let start_time = Instant::now();
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -98,7 +98,7 @@ impl<'a> DirectorySync<'a> {
 
         // 1. 获取数据库中所有记录
         let db_records = self.get_all_db_records()?;
-        debug!("数据库中记录数: {}", db_records.len());
+        info!("数据库中记录数: {}", db_records.len());
 
         // 2. 并行扫描文件系统
         let (fs_files, scan_errors) = self.scan_filesystem_parallel(root_path);
@@ -113,7 +113,7 @@ impl<'a> DirectorySync<'a> {
         let mut new_count = 0;
         let mut changed_count = 0;
         let mut skipped_count = 0;
-
+        // 开始时间
         for (path, file_info) in &fs_files {
             match db_records.get(path) {
                 None => {
@@ -133,7 +133,9 @@ impl<'a> DirectorySync<'a> {
                 }
             }
         }
-
+        // 结束时间
+        let elapsed_time = start_time.elapsed().as_millis();
+        info!("，耗时: {}ms", elapsed_time);
         // 4. 处理删除的文件
         let mut deleted_count = 0;
         for (path, db_record) in &db_records {
@@ -213,7 +215,6 @@ impl<'a> DirectorySync<'a> {
             };
 
             let path = entry.path();
-
             // 跳过根目录本身
             if path == root {
                 continue;
@@ -238,7 +239,6 @@ impl<'a> DirectorySync<'a> {
 
         pending_entries.par_iter().for_each(|entry| {
             let result = Self::process_file_static(&entry.path, root_ref);
-
             match result {
                 Ok(Some(file_info)) => {
                     let mut files_guard = files.lock().unwrap();
@@ -278,8 +278,6 @@ impl<'a> DirectorySync<'a> {
         // 确定文件类型
         let file_type = match extension.as_str() {
             "mp4" => video_types::MP4,
-            "m3u8" => video_types::M3U8,
-            "ts" => video_types::TS,
             "vtt" | "srt" => video_types::SUBTITLE,
             "jpg" | "png" | "gif" => video_types::IMAGE,
             _ => video_types::UNKNOWN,
@@ -304,24 +302,33 @@ impl<'a> DirectorySync<'a> {
             .and_then(|m| get_systemtime_created(m))
             .unwrap_or_default();
 
+        // 获取缩略图路径
+        let thumb_path = Self::get_thumbnail_path(path);
+
         // 使用统一的 FFmpeg 服务获取视频信息
         let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
             let ffmpeg = get_ffmpeg_service();
-            let thumb_path = Self::get_thumbnail_path(path);
-
+            let video_info = get_video_info(&path.to_string_lossy().to_string());
+            debug!("aas: {:?}", video_info);
             // 检查缩略图是否已存在
             if thumb_path.exists() {
+                // 缩略图已存在，直接使用路径，不重新获取视频元数据
                 // 缩略图已存在，单独获取元数据
-                let dur = ffmpeg.get_duration(path);
-                let dims = ffmpeg.get_dimensions(path);
+                // let dur = ffmpeg.get_duration(path);
+                // let dims = ffmpeg.get_dimensions(path);
+
+                // 这些信息会在后续与数据库记录对比时，如果数据库中已有则不需要更新
                 (
                     Some(thumb_path.to_string_lossy().to_string()),
-                    dur,
-                    dims.map(|(w, _)| w),
-                    dims.map(|(_, h)| h),
+                    // dur,
+                    // dims.map(|(w, _)| w),
+                    // dims.map(|(_, h)| h),
+                    None, // 不获取 duration，使用数据库中的值
+                    None, // 不获取 width，使用数据库中的值
+                    None, // 不获取 height，使用数据库中的值
                 )
             } else {
-                // 使用合并调用一次性获取所有信息
+                // 缩略图不存在，使用合并调用一次性获取所有信息
                 let metadata = ffmpeg.extract_video_info(path, &thumb_path);
                 (
                     metadata.thumbnail_path,
@@ -392,31 +399,6 @@ impl<'a> DirectorySync<'a> {
             if extension == "mp4" || extension == "avi" || extension == "mkv" || extension == "mov"
             {
                 ffmpeg.generate_thumbnail(file_path, &thumbnail_path)
-            } else if extension == "m3u8" {
-                // 对于 m3u8，尝试从第一个 ts 片段生成
-                if let Some(parent) = file_path.parent() {
-                    let index_m3u8 = parent.join("index.m3u8");
-                    if index_m3u8.exists() {
-                        if let Ok(content) = std::fs::read_to_string(&index_m3u8) {
-                            if let Some(ts_line) = content.lines().find(|l| l.ends_with(".ts")) {
-                                let ts_path = parent.join(ts_line.trim());
-                                if ts_path.exists() {
-                                    ffmpeg.generate_thumbnail(&ts_path, &thumbnail_path)
-                                } else {
-                                    ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
-                                }
-                            } else {
-                                ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
-                            }
-                        } else {
-                            ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
-                        }
-                    } else {
-                        ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
-                    }
-                } else {
-                    ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media")
-                }
             } else {
                 ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "file")
             };

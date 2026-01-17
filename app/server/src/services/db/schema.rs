@@ -5,8 +5,6 @@
 /// 视频类型常量
 pub mod video_types {
     pub const MP4: &str = "mp4";
-    pub const M3U8: &str = "m3u8";
-    pub const TS: &str = "ts";
     pub const SUBTITLE: &str = "subtitle";
     pub const IMAGE: &str = "image";
     pub const UNKNOWN: &str = "unknown";

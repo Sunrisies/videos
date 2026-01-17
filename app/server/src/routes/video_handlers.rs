@@ -81,7 +81,6 @@ pub async fn sync_videos(
     let start = std::time::Instant::now();
     let db_manager = state.db_manager.lock().unwrap();
     let sync = DirectorySync::new(&db_manager);
-
     match sync.sync_directory("public") {
         Ok(_) => {
             // Get updated count
