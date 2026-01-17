@@ -6,11 +6,9 @@
 //! - M3U8 合并为 MP4
 //! - 批量处理优化
 
-use log::{debug, error, info, warn};
+use log::{debug, error, warn};
 use std::path::Path;
 use std::process::Command;
-use std::sync::Arc;
-use tokio::sync::Semaphore;
 
 /// FFmpeg 操作结果
 #[derive(Debug, Clone)]
@@ -30,8 +28,6 @@ pub struct FFmpegConfig {
     pub thumbnail_seek_time: f32,
     /// 缩略图宽度
     pub thumbnail_width: u32,
-    /// 最大并发 FFmpeg 进程数
-    pub max_concurrent: usize,
 }
 
 impl Default for FFmpegConfig {
@@ -40,7 +36,6 @@ impl Default for FFmpegConfig {
             thumbnail_quality: 2,
             thumbnail_seek_time: 1.0,
             thumbnail_width: 320,
-            max_concurrent: 4,
         }
     }
 }
@@ -48,14 +43,12 @@ impl Default for FFmpegConfig {
 /// FFmpeg 统一服务
 pub struct FFmpegService {
     config: FFmpegConfig,
-    semaphore: Arc<Semaphore>,
 }
 
 impl FFmpegService {
     /// 创建新的 FFmpeg 服务实例
     pub fn new(config: FFmpegConfig) -> Self {
-        let semaphore = Arc::new(Semaphore::new(config.max_concurrent));
-        Self { config, semaphore }
+        Self { config }
     }
 
     /// 使用默认配置创建服务
@@ -215,40 +208,6 @@ impl FFmpegService {
         }
     }
 
-    /// M3U8 合并为 MP4
-    pub fn merge_m3u8_to_mp4(&self, m3u8_path: &Path, output_path: &Path) -> Result<(), String> {
-        let input = m3u8_path.to_string_lossy().to_string();
-        let output = output_path.to_string_lossy().to_string();
-
-        info!("合并 M3U8: {:?} -> {:?}", m3u8_path, output_path);
-
-        let result = Command::new("ffmpeg")
-            .args([
-                "-i",
-                &input,
-                "-c",
-                "copy",
-                "-bsf:a",
-                "aac_adtstoasc",
-                "-y",
-                &output,
-            ])
-            .output();
-
-        match result {
-            Ok(cmd_output) => {
-                if cmd_output.status.success() && output_path.exists() {
-                    info!("M3U8 合并成功: {:?}", output_path);
-                    Ok(())
-                } else {
-                    let stderr = String::from_utf8_lossy(&cmd_output.stderr);
-                    Err(format!("FFmpeg 合并失败: {}", stderr))
-                }
-            }
-            Err(e) => Err(format!("FFmpeg 执行失败: {}", e)),
-        }
-    }
-
     /// 仅获取视频时长
     pub fn get_duration(&self, video_path: &Path) -> Option<String> {
         let input = video_path.to_string_lossy().to_string();
@@ -300,11 +259,6 @@ impl FFmpegService {
         } else {
             None
         }
-    }
-
-    /// 获取并发信号量（用于限制并发数）
-    pub fn semaphore(&self) -> Arc<Semaphore> {
-        self.semaphore.clone()
     }
 
     /// 格式化时长为 HH:MM:SS

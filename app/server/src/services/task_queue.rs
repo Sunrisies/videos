@@ -17,6 +17,7 @@ use crate::services::ffmpeg::{get_ffmpeg_service, VideoMetadata};
 
 /// 任务类型
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub enum TaskType {
     /// 生成视频缩略图
     GenerateThumbnail {
@@ -28,15 +29,11 @@ pub enum TaskType {
         video_path: PathBuf,
         thumbnail_path: PathBuf,
     },
-    /// M3U8 合并为 MP4
-    MergeM3u8 {
-        m3u8_path: PathBuf,
-        output_path: PathBuf,
-    },
 }
 
 /// 任务优先级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[allow(dead_code)]
 pub enum TaskPriority {
     Low = 0,
     Normal = 1,
@@ -45,6 +42,7 @@ pub enum TaskPriority {
 
 /// 任务状态
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(dead_code)]
 pub enum TaskStatus {
     Pending,
     Running,
@@ -54,6 +52,7 @@ pub enum TaskStatus {
 
 /// 后台任务
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct BackgroundTask {
     pub id: u64,
     pub task_type: TaskType,
@@ -64,10 +63,10 @@ pub struct BackgroundTask {
 
 /// 任务结果
 #[derive(Debug)]
+#[allow(dead_code)]
 pub enum TaskResult {
     ThumbnailGenerated(PathBuf),
     MetadataExtracted(VideoMetadata),
-    M3u8Merged(PathBuf),
     Failed(String),
 }
 
@@ -278,12 +277,6 @@ async fn execute_task(task: &BackgroundTask) -> std::result::Result<TaskResult, 
             let metadata = ffmpeg.extract_video_info(video_path, thumbnail_path);
             Ok(TaskResult::MetadataExtracted(metadata))
         }
-        TaskType::MergeM3u8 {
-            m3u8_path,
-            output_path,
-        } => ffmpeg
-            .merge_m3u8_to_mp4(m3u8_path, output_path)
-            .map(|_| TaskResult::M3u8Merged(output_path.clone())),
     }
 }
 

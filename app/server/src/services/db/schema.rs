@@ -32,10 +32,4 @@ pub mod queries {
         FROM videos
         WHERE parent_path = ?
         ORDER BY created_at DESC";
-    /// 根据路径获取特定视频记录
-    pub const SELECT_BY_PATH: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, width, height
-        FROM videos
-        WHERE path = ?";
-    /// 根据路径获取视频类型
-    pub const SELECT_TYPE_BY_PATH: &str = "SELECT type FROM videos WHERE path = ?";
 }

@@ -26,16 +26,29 @@ interface ApiVideoItem {
   height?: number
 }
 
-const fetchVideosFromApi = async (): Promise<MediaItem[]> => {
-  const response = await fetch("http://192.168.1.10:3003/api/videos")
+// 分页响应接口
+// 分页响应接口
+interface PaginatedResponse {
+  videos: ApiVideoItem[]
+  pagination: {
+    page: number
+    page_size: number
+    total: number
+    total_pages: number
+    has_next: boolean
+    has_prev: boolean
+  }
+}
+
+
+const fetchVideosFromApi = async (page: number = 1, pageSize: number = 4): Promise<{ videos: MediaItem[], total: number, totalPages: number }> => {
+  const response = await fetch(`http://192.168.1.10:3003/api/videos/paginated?page_size=${pageSize}&page=${page}`)
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
-  const data = await response.json()
-  // API返回的数据结构是 { videos: [...] }，需要提取数组
-  const videos = data.videos || []
+  const data: PaginatedResponse = await response.json()
   // 转换字段名以匹配类型定义
-  return videos.map((video: ApiVideoItem) => ({
+  const videos = data.videos.map((video: ApiVideoItem) => ({
     name: video.name,
     path: video.path,
     type: video.type,
@@ -49,6 +62,12 @@ const fetchVideosFromApi = async (): Promise<MediaItem[]> => {
     width: video.width,
     height: video.height,
   }))
+
+  return {
+    videos,
+    total: data.pagination.total,
+    totalPages: data.pagination.total_pages
+  }
 }
 
 export default function VideosPage() {
@@ -57,25 +76,45 @@ export default function VideosPage() {
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
   const [filterType, setFilterType] = useState<string>("all")
+  const [currentPage, setCurrentPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
+  const [totalVideos, setTotalVideos] = useState(0)
+  const pageSize = 4
 
   // 使用自定义Hook来保存和恢复滚动位置
   const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
 
   // 使用缓存 Hook 获取视频数据
   const {
-    data: videos,
+    data: paginatedData,
     loading,
     error,
     refresh,
     fromCache
-  } = useDataCache<MediaItem[]>(
-    fetchVideosFromApi,
+  } = useDataCache<{ videos: MediaItem[], total: number, totalPages: number }>(
+    () => fetchVideosFromApi(currentPage, pageSize),
     {
-      cacheKey: "videos-list",
+      cacheKey: `videos-list-${currentPage}`,
       maxAge: 5 * 60 * 1000, // 5分钟缓存
       backgroundRefresh: true,
     }
   )
+
+  // 从分页数据中提取视频列表和分页信息
+  const videos = paginatedData?.videos || []
+
+  // 更新分页信息
+  useEffect(() => {
+    if (paginatedData) {
+      setTotalPages(paginatedData.totalPages)
+      setTotalVideos(paginatedData.total)
+    }
+  }, [paginatedData])
+
+  // 当筛选条件改变时，重置到第一页
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [filterType, searchQuery])
 
   // 路由守卫：检查授权状态
   useEffect(() => {
@@ -96,37 +135,37 @@ export default function VideosPage() {
 
         // 使用多种方式确保滚动位置恢复
         const restoreScroll = () => {
-          const savedPosition = sessionStorage.getItem("videosPageScrollPosition");
+          const savedPosition = sessionStorage.getItem("videosPageScrollPosition")
           if (savedPosition) {
-            const position = parseInt(savedPosition, 10);
+            const position = parseInt(savedPosition, 10)
 
             // 立即设置滚动位置
-            window.scrollTo(0, position);
+            window.scrollTo(0, position)
 
             // 移动端可能需要多次尝试
             setTimeout(() => {
-              window.scrollTo(0, position);
-            }, 50);
+              window.scrollTo(0, position)
+            }, 50)
 
             setTimeout(() => {
-              window.scrollTo(0, position);
-            }, 100);
+              window.scrollTo(0, position)
+            }, 100)
 
             setTimeout(() => {
-              window.scrollTo(0, position);
+              window.scrollTo(0, position)
               // 清除保存的位置
-              sessionStorage.removeItem("videosPageScrollPosition");
-            }, 200);
+              sessionStorage.removeItem("videosPageScrollPosition")
+            }, 200)
           }
-        };
+        }
 
         // 等待页面完全渲染
         if (document.readyState === 'complete') {
-          restoreScroll();
+          restoreScroll()
         } else {
-          window.addEventListener('load', restoreScroll, { once: true });
+          window.addEventListener('load', restoreScroll, { once: true })
           // 额外的延迟作为后备
-          setTimeout(restoreScroll, 300);
+          setTimeout(restoreScroll, 300)
         }
       }
     }
@@ -138,10 +177,41 @@ export default function VideosPage() {
     return matchesSearch && matchesType
   })
 
+  // 处理分页变化
+  const handlePageChange = (newPage: number) => {
+    if (newPage >= 1 && newPage <= totalPages) {
+      setCurrentPage(newPage)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  // 生成页码数组
+  const getPageNumbers = () => {
+    const pages: number[] = []
+
+    // 计算显示的起始页码
+    let startPage = Math.max(1, currentPage - 2)
+    let endPage = startPage + 4
+
+    // 如果结束页超过总页数，调整起始页
+    if (endPage > totalPages) {
+      endPage = totalPages
+      startPage = Math.max(1, endPage - 4)
+    }
+
+    // 生成页码数组
+    for (let i = startPage; i <= endPage; i++) {
+      pages.push(i)
+    }
+
+    return pages
+  }
+
+
   const handleVideoClick = (video: MediaItem) => {
     // 保存当前滚动位置到sessionStorage
-    const scrollPosition = window.scrollY;
-    sessionStorage.setItem("videosPageScrollPosition", scrollPosition.toString());
+    const scrollPosition = window.scrollY
+    sessionStorage.setItem("videosPageScrollPosition", scrollPosition.toString())
 
     // 将视频数据存储到 sessionStorage
     sessionStorage.setItem("currentVideo", JSON.stringify(video))
@@ -150,7 +220,7 @@ export default function VideosPage() {
 
   return (
     <div className="min-h-screen bg-background pb-20">
-      {/* 顶部导航栏 */}
+      {/* 顶部导航栏 */ }
       <header className="sticky top-0 z-10 bg-card/95 backdrop-blur-sm border-b">
         <div className="container mx-auto px-4 py-4">
           <div className="flex items-center justify-between mb-3">
@@ -158,54 +228,54 @@ export default function VideosPage() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={refresh}
-              disabled={loading}
+              onClick={ refresh }
+              disabled={ loading }
               title="刷新列表"
             >
-              <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={ `w-5 h-5 ${loading ? 'animate-spin' : ''}` } />
             </Button>
           </div>
 
-          {/* 搜索栏 */}
+          {/* 搜索栏 */ }
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" />
             <Input
               type="text"
               placeholder="搜索视频..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              value={ searchQuery }
+              onChange={ (e) => setSearchQuery(e.target.value) }
               className="pl-10 h-12"
             />
           </div>
 
-          {/* 筛选和视图切换 */}
+          {/* 筛选和视图切换 */ }
           <div className="flex items-center justify-between mt-3 gap-2">
             <div className="flex gap-2 overflow-x-auto pb-1">
               <Button
                 size="sm"
-                variant={filterType === "all" ? "default" : "secondary"}
-                onClick={() => setFilterType("all")}
+                variant={ filterType === "all" ? "default" : "secondary" }
+                onClick={ () => setFilterType("all") }
               >
                 全部
               </Button>
               <Button
                 size="sm"
-                variant={filterType === "mp4" ? "default" : "secondary"}
-                onClick={() => setFilterType("mp4")}
+                variant={ filterType === "mp4" ? "default" : "secondary" }
+                onClick={ () => setFilterType("mp4") }
               >
                 MP4
               </Button>
               <Button
                 size="sm"
-                variant={filterType === "webm" ? "default" : "secondary"}
-                onClick={() => setFilterType("webm")}
+                variant={ filterType === "webm" ? "default" : "secondary" }
+                onClick={ () => setFilterType("webm") }
               >
                 WebM
               </Button>
               <Button
                 size="sm"
-                variant={filterType === "hls_directory" ? "default" : "secondary"}
-                onClick={() => setFilterType("hls_directory")}
+                variant={ filterType === "hls_directory" ? "default" : "secondary" }
+                onClick={ () => setFilterType("hls_directory") }
               >
                 HLS
               </Button>
@@ -214,15 +284,15 @@ export default function VideosPage() {
             <div className="flex gap-1 shrink-0">
               <Button
                 size="icon"
-                variant={viewMode === "grid" ? "default" : "ghost"}
-                onClick={() => setViewMode("grid")}
+                variant={ viewMode === "grid" ? "default" : "ghost" }
+                onClick={ () => setViewMode("grid") }
               >
                 <Grid3x3 className="w-5 h-5" />
               </Button>
               <Button
                 size="icon"
-                variant={viewMode === "list" ? "default" : "ghost"}
-                onClick={() => setViewMode("list")}
+                variant={ viewMode === "list" ? "default" : "ghost" }
+                onClick={ () => setViewMode("list") }
               >
                 <List className="w-5 h-5" />
               </Button>
@@ -231,9 +301,9 @@ export default function VideosPage() {
         </div>
       </header>
 
-      {/* 视频列表 */}
+      {/* 视频列表 */ }
       <main className="container mx-auto px-4 py-6">
-        {loading && !videos ? (
+        { loading && !videos ? (
           <div className="text-center py-20">
             <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-primary mb-3"></div>
             <p className="text-lg text-muted-foreground">正在加载视频...</p>
@@ -241,10 +311,10 @@ export default function VideosPage() {
         ) : error && !videos ? (
           <div className="text-center py-20">
             <p className="text-lg text-red-600 mb-2">错误</p>
-            <p className="text-sm text-muted-foreground">{error}</p>
+            <p className="text-sm text-muted-foreground">{ error }</p>
             <Button
               className="mt-4"
-              onClick={refresh}
+              onClick={ refresh }
             >
               重试
             </Button>
@@ -257,18 +327,54 @@ export default function VideosPage() {
         ) : (
           <>
             <div className="mb-4 text-sm text-muted-foreground flex items-center gap-2">
-              <span>找到 {filteredVideos.length} 个视频</span>
-              {fromCache && (
+              <span>找到 { totalVideos } 个视频</span>
+              { fromCache && (
                 <span className="text-xs px-2 py-0.5 bg-secondary rounded-full">缓存</span>
-              )}
+              ) }
             </div>
-            <div className={viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4"}>
-              {filteredVideos.map((video, index) => (
-                <VideoListItem key={index} video={video} onClick={() => handleVideoClick(video)} />
-              ))}
+            <div className={ viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4" }>
+              { filteredVideos.map((video, index) => (
+                <VideoListItem key={ index } video={ video } onClick={ () => handleVideoClick(video) } />
+              )) }
             </div>
+
+            {/* 分页控件 */ }
+            { totalPages > 1 && (
+              <div className="mt-6 flex items-center justify-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={ () => handlePageChange(currentPage - 1) }
+                  disabled={ currentPage === 1 }
+                >
+                  上一页
+                </Button>
+
+                { getPageNumbers().map((page, index) => (
+                  <Button
+                    key={ index }
+                    variant={ page === currentPage ? "default" : "outline" }
+                    size="sm"
+                    className={ page === "..." ? "cursor-default" : "" }
+                    onClick={ () => typeof page === "number" && handlePageChange(page) }
+                    disabled={ page === "..." }
+                  >
+                    { page }
+                  </Button>
+                )) }
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={ () => handlePageChange(currentPage + 1) }
+                  disabled={ currentPage === totalPages }
+                >
+                  下一页
+                </Button>
+              </div>
+            ) }
           </>
-        )}
+        ) }
       </main>
     </div>
   )

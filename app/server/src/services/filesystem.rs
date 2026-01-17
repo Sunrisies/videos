@@ -31,7 +31,10 @@ pub fn initialize_thumbnails_with_source(source_dir: &str) {
         return;
     }
 
-    info!("需要生成缩略图的文件数量: {}", files_without_thumbnails.len());
+    info!(
+        "需要生成缩略图的文件数量: {}",
+        files_without_thumbnails.len()
+    );
 
     // 使用新的 FFmpeg 服务并行生成缩略图
     let ffmpeg = get_ffmpeg_service();
@@ -56,7 +59,8 @@ pub fn initialize_thumbnails_with_source(source_dir: &str) {
                 .unwrap_or("")
                 .to_lowercase();
 
-            if extension == "mp4" || extension == "avi" || extension == "mkv" || extension == "mov" {
+            if extension == "mp4" || extension == "avi" || extension == "mkv" || extension == "mov"
+            {
                 ffmpeg.generate_thumbnail(file, &thumbnail_path);
             } else {
                 ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media");
@@ -64,16 +68,4 @@ pub fn initialize_thumbnails_with_source(source_dir: &str) {
         });
 
     info!("缩略图初始化完成，耗时: {:?}", start.elapsed());
-}
-
-/// 为视频文件生成缩略图（兼容旧接口）
-pub fn generate_video_thumbnail(video_path: &StdPath, thumbnail_path: &StdPath) {
-    let ffmpeg = get_ffmpeg_service();
-    ffmpeg.generate_thumbnail(video_path, thumbnail_path);
-}
-
-/// 生成默认缩略图（兼容旧接口）
-pub fn generate_default_thumbnail(thumbnail_path: &StdPath, file_type: &str) {
-    let ffmpeg = get_ffmpeg_service();
-    ffmpeg.generate_placeholder_thumbnail(thumbnail_path, file_type);
 }

@@ -10,10 +10,7 @@ use crate::services::db::schema::{queries, video_types};
 use crate::services::ffmpeg::get_ffmpeg_service;
 use std::time::Instant;
 
-use crate::utils::{
-    check_m3u8_file, format_size, get_created_at, get_m3u8_duration, get_systemtime_created,
-    has_m3u8_file, is_video_or_container, merge_m3u8_to_mp4,
-};
+use crate::utils::{format_size, get_systemtime_created, is_video_or_container};
 use log::{debug, info, warn};
 use rayon::prelude::*;
 use rusqlite::Result;
@@ -43,15 +40,12 @@ pub struct FileInfo {
     pub duration: Option<String>,
     pub width: Option<i32>,
     pub height: Option<i32>,
-    /// 文件修改时间戳（用于增量扫描）
-    pub modified_time: u64,
 }
 
 /// 待处理的文件条目
 #[derive(Debug, Clone)]
 struct PendingEntry {
     path: PathBuf,
-    is_m3u8_dir: bool,
 }
 
 impl<'a> DirectorySync<'a> {
@@ -186,7 +180,6 @@ impl<'a> DirectorySync<'a> {
                 parent_path: row.get(11)?,
                 width: row.get(12)?,
                 height: row.get(13)?,
-                modified_time: 0,
             };
             records.insert(record.path.clone(), record);
         }
@@ -231,10 +224,8 @@ impl<'a> DirectorySync<'a> {
                 continue;
             }
 
-            let is_m3u8_dir = path.is_dir() && has_m3u8_file(path);
             pending_entries.push(PendingEntry {
                 path: path.to_path_buf(),
-                is_m3u8_dir,
             });
         }
 
@@ -246,11 +237,7 @@ impl<'a> DirectorySync<'a> {
         let root_ref = &root;
 
         pending_entries.par_iter().for_each(|entry| {
-            let result = if entry.is_m3u8_dir {
-                Self::process_m3u8_directory_static(&entry.path, root_ref)
-            } else {
-                Self::process_file_static(&entry.path, root_ref)
-            };
+            let result = Self::process_file_static(&entry.path, root_ref);
 
             match result {
                 Ok(Some(file_info)) => {
@@ -271,57 +258,6 @@ impl<'a> DirectorySync<'a> {
         let errors = errors.into_inner().unwrap();
 
         (files, errors)
-    }
-
-    /// 静态方法：处理 m3u8 目录（用于并行处理）
-    fn process_m3u8_directory_static(
-        path: &Path,
-        _root: &Path,
-    ) -> std::result::Result<Option<FileInfo>, String> {
-        let parent_path = path
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-
-        let path_str = check_m3u8_file(path).unwrap_or_default();
-        debug!("m3u8 路径: {:?}", path_str);
-
-        // 合并 m3u8（如果需要）
-        let _ = merge_m3u8_to_mp4(path);
-
-        let name = path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("")
-            .to_string();
-
-        let created_at = get_created_at(path).unwrap_or_default();
-        let duration = get_m3u8_duration(path);
-
-        // 使用统一的 FFmpeg 服务生成缩略图
-        let thumbnail = Self::ensure_thumbnail_static(path);
-
-        let modified_time = std::fs::metadata(path)
-            .ok()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-
-        Ok(Some(FileInfo {
-            name,
-            path: path_str.to_string_lossy().to_string(),
-            created_at,
-            file_type: video_types::M3U8.to_string(),
-            parent_path,
-            thumbnail,
-            size: None,
-            subtitle: None,
-            duration,
-            width: None,
-            height: None,
-            modified_time,
-        }))
     }
 
     /// 静态方法：处理普通文件（用于并行处理）
@@ -349,15 +285,6 @@ impl<'a> DirectorySync<'a> {
             _ => video_types::UNKNOWN,
         };
 
-        // 对于 ts 文件，如果同一目录下有 m3u8 文件，则跳过
-        if extension == "ts" {
-            if let Some(parent) = path.parent() {
-                if has_m3u8_file(parent) {
-                    return Ok(None);
-                }
-            }
-        }
-
         let parent_path = path
             .parent()
             .map(|p| p.to_string_lossy().to_string())
@@ -376,13 +303,6 @@ impl<'a> DirectorySync<'a> {
             .as_ref()
             .and_then(|m| get_systemtime_created(m))
             .unwrap_or_default();
-
-        let modified_time = metadata
-            .as_ref()
-            .and_then(|m| m.modified().ok())
-            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
 
         // 使用统一的 FFmpeg 服务获取视频信息
         let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
@@ -433,7 +353,6 @@ impl<'a> DirectorySync<'a> {
             duration,
             width,
             height,
-            modified_time,
         }))
     }
 
