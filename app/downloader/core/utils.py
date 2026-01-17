@@ -490,3 +490,9 @@ def check_ts_header(file_path):
                 return False
     except Exception as e:
         return False
+
+
+def extract_filename(url: str) -> str:
+    """从URL提取文件名"""
+    # 使用 utils.py 中的 extract_filename_from_url 函数
+    return extract_filename_from_url(url)

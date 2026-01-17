@@ -33,7 +33,6 @@ class FileMerger:
         self.config = config
         self.logger = logger
         self._quiet_mode = quiet_mode
-        self.stop_flag = False
 
         # 如果线程安全合并器可用，优先使用
         if ThreadSafeFileMerger:
@@ -41,12 +40,6 @@ class FileMerger:
                 config, logger, quiet_mode)
         else:
             self._thread_safe_merger = None
-
-    def set_stop_flag(self, stop_flag: bool):
-        """设置停止标志"""
-        self.stop_flag = stop_flag
-        if self._thread_safe_merger:
-            self._thread_safe_merger.set_stop_flag(stop_flag)
 
     def _extract_filename(self, url: str) -> str:
         """从URL提取文件名"""
@@ -69,9 +62,6 @@ class FileMerger:
         Returns:
             bool: 是否成功
         """
-        if self.stop_flag:
-            return False
-
         # 优先使用线程安全的合并器
         if self._thread_safe_merger:
             return self._thread_safe_merger.merge_files(file_list, output_file, temp_dir)
@@ -125,7 +115,7 @@ class FileMerger:
                 output_file
             ]
             if self.logger:
-                self.logger.error(f"运行FFmpeg命令: {' '.join(cmd)}")
+                self.logger.info(f"运行FFmpeg命令: {' '.join(cmd)}")
             try:
                 result = subprocess.run(
                     cmd,
@@ -178,9 +168,6 @@ class FileMerger:
         Returns:
             bool: 是否成功
         """
-        if self.stop_flag:
-            return False
-
         # 优先使用线程安全的合并器
         if self._thread_safe_merger:
             return self._thread_safe_merger.merge_files_binary(file_list, output_file, temp_dir)
@@ -200,8 +187,6 @@ class FileMerger:
 
             with open(output_file, 'wb') as outfile:
                 for url in file_list:  # 保持M3U8中的原始顺序
-                    if self.stop_flag:
-                        break
 
                     filename = self._extract_filename(url)
                     filepath = os.path.join(temp_dir, filename)
@@ -230,7 +215,6 @@ class FileMerger:
             if merge_bar:
                 merge_bar.close()
 
-            return not self.stop_flag
 
         except Exception as e:
             if self.logger:

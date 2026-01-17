@@ -112,71 +112,25 @@ class AdvancedM3U8CLI:
 
         # 选择模式
         print("请选择操作模式:")
-        print("1. 单个视频下载")
-        print("2. JSON批量下载")
-        print("3. 创建JSON配置文件")
+        print("1. JSON批量下载")
+        print("2. 创建JSON配置文件")
 
-        mode = safe_input("选择 (1-3) [2]: ", "2")
+        mode = safe_input("选择 (1-2) [1]: ", "1")
+
 
         if mode == "1":
-            return self.single_download_interactive()
-        elif mode == "2":
             return self.batch_download_interactive()
-        elif mode == "3":
+        elif mode == "2":
             return self.create_json_interactive()
         else:
             print("无效选择")
             return False
 
-    def single_download_interactive(self):
-        """单个下载交互"""
-        url = safe_input("\n请输入M3U8文件URL: ")
-        if not url:
-            print("未输入URL")
-            return False
-
-        if not FileValidator.validate_url(url):
-            print("URL格式无效")
-            return False
-
-        url = URLProcessor.normalize_url(url)
-
-        # 配置选项
-        print("\n下载配置:")
-        print("1. 快速模式 (高并发)")
-        print("2. 稳定模式 (推荐)")
-        print("3. 低带宽模式")
-        print("4. 自定义")
-
-        choice = safe_input("选择 (1-4) [2]: ", "2")
-
-        if choice == "1":
-            config = ConfigTemplates.fast()
-        elif choice == "2":
-            config = ConfigTemplates.stable()
-        elif choice == "3":
-            config = ConfigTemplates.low_bandwidth()
-        else:
-            config = self.custom_config_interactive()
-
-        output = safe_input("\n输出文件名 [output.mp4]: ", "output.mp4")
-
-        # 确认
-        print(f"\n准备下载:")
-        print(f"  URL: {url}")
-        print(f"  输出: {output}")
-        print(f"  线程数: {config.num_threads}")
-
-        if not confirm_action("\n是否开始下载"):
-            return False
-
-        # 执行下载
-        self.downloader = AdvancedM3U8Downloader(config)
-        return self.downloader.download_single("single_task", url, os.path.dirname(output) or ".", {"output_file": output})
-
     def batch_download_interactive(self):
         """批量下载交互"""
-        json_file = safe_input("\n请输入JSON配置文件路径: ")
+        # json_file = safe_input("\n请输入JSON配置文件路径: ")
+        # print(f"文件路径: {json_file}")
+        json_file = r"F:\node\videos\app\downloader\examples\tasks.example1.json"
         if not os.path.exists(json_file):
             print(f"文件不存在: {json_file}")
             return False
@@ -189,7 +143,7 @@ class AdvancedM3U8CLI:
         print("2. 稳定模式")
         print("3. 低带宽模式")
 
-        choice = safe_input("选择 (1-3) [2]: ", "2")
+        choice = safe_input("选择 (1-3) [2]: ", "1")
 
         if choice == "1":
             config = ConfigTemplates.fast()
@@ -199,9 +153,9 @@ class AdvancedM3U8CLI:
             config = ConfigTemplates.low_bandwidth()
 
         # 并发数设置
-        max_concurrent = safe_input("\n最大并发任务数 (默认3): ", "3")
+        max_concurrent = safe_input("\n最大并发任务数 (默认6): ", "6")
         if not max_concurrent.isdigit():
-            max_concurrent = 3
+            max_concurrent = 6
         else:
             max_concurrent = int(max_concurrent)
 
