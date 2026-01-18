@@ -5,7 +5,7 @@ use axum::{
     response::{IntoResponse, Response},
     Json,
 };
-use log::info;
+use log::{error, info};
 use std::sync::Arc;
 
 use crate::models::{PaginatedVideoList, PaginationParams, VideoList};
@@ -106,4 +106,128 @@ pub async fn sync_videos(
         )
             .into_response()),
     }
+}
+
+/// 删除视频文件（从数据库和物理文件系统中删除）
+pub async fn delete_video(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<DeleteVideoParams>,
+) -> Result<Json<serde_json::Value>, Response> {
+    let video_id = params.id;
+
+    // 验证ID是否有效
+    if video_id <= 0 {
+        return Err((StatusCode::BAD_REQUEST, "Invalid video ID").into_response());
+    }
+
+    let db_manager = state.db_manager.lock().unwrap();
+    let video_dao = VideoDao::new(&db_manager);
+
+    // 检查视频是否存在
+    match video_dao.video_exists_by_id(video_id) {
+        Ok(exists) => {
+            if !exists {
+                return Err((StatusCode::NOT_FOUND, "Video not found in database").into_response());
+            }
+        }
+        Err(e) => {
+            error!("Error checking video existence: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+                .into_response());
+        }
+    }
+
+    // 根据ID获取视频路径
+    let video_path = match video_dao.get_video_path_by_id(video_id) {
+        Ok(Some(path)) => path,
+        Ok(None) => {
+            return Err((StatusCode::NOT_FOUND, "Video not found in database").into_response());
+        }
+        Err(e) => {
+            error!("Error getting video path: {}", e);
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+                .into_response());
+        }
+    };
+
+    // 从数据库中删除记录
+    match video_dao.delete_from_database_by_id(video_id) {
+        Ok(affected_rows) => {
+            if affected_rows == 0 {
+                return Err((StatusCode::NOT_FOUND, "Video not found in database").into_response());
+            }
+
+            // 物理删除文件
+            let full_path = std::path::Path::new(&video_path);
+            let mut deleted_files = Vec::new();
+
+            // 删除主视频文件
+            if full_path.exists() {
+                match std::fs::remove_file(full_path) {
+                    Ok(_) => {
+                        deleted_files.push(video_path.to_string());
+                        info!("Deleted video file: {}", video_path);
+                    }
+                    Err(e) => {
+                        error!("Failed to delete video file {}: {}", video_path, e);
+                        // 继续执行，即使文件删除失败
+                    }
+                }
+            }
+
+            // 删除对应的缩略图文件（如果存在）
+            let thumbnail_name = full_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .map(|s| format!("{}.jpg", s))
+                .unwrap_or_default();
+
+            if !thumbnail_name.is_empty() {
+                let thumbnail_path = std::path::Path::new("thumbnails").join(&thumbnail_name);
+                if thumbnail_path.exists() {
+                    match std::fs::remove_file(&thumbnail_path) {
+                        Ok(_) => {
+                            deleted_files.push(format!("thumbnails/{}", thumbnail_name));
+                            info!("Deleted thumbnail file: {}", thumbnail_path.display());
+                        }
+                        Err(e) => {
+                            error!(
+                                "Failed to delete thumbnail file {}: {}",
+                                thumbnail_path.display(),
+                                e
+                            );
+                        }
+                    }
+                }
+            }
+
+            Ok(Json(serde_json::json!({
+                "success": true,
+                "message": "Video deleted successfully",
+                "deleted_files": deleted_files,
+                "database_records_deleted": affected_rows
+            })))
+        }
+        Err(e) => {
+            error!("Error deleting video from database: {}", e);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                format!("Database error: {}", e),
+            )
+                .into_response())
+        }
+    }
+}
+
+/// 删除视频请求参数
+#[derive(serde::Deserialize)]
+pub struct DeleteVideoParams {
+    /// 视频ID
+    pub id: i64,
 }

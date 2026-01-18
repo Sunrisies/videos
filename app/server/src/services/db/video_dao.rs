@@ -211,4 +211,46 @@ impl<'a> VideoDao<'a> {
             },
         })
     }
+
+    /// 从数据库中删除视频记录（通过ID）
+    /// 返回删除的记录数量
+    pub fn delete_from_database_by_id(&self, video_id: i64) -> Result<usize> {
+        let stmt = "DELETE FROM videos WHERE id = ?1";
+        let mut delete_stmt = self.db_manager.conn.prepare(stmt)?;
+        let affected_rows = delete_stmt.execute([video_id])?;
+        Ok(affected_rows)
+    }
+
+    /// 从数据库中删除视频记录（通过路径）
+    /// 返回删除的记录数量
+    pub fn delete_from_database(&self, video_path: &str) -> Result<usize> {
+        let stmt = "DELETE FROM videos WHERE path = ?1";
+        let mut delete_stmt = self.db_manager.conn.prepare(stmt)?;
+        let affected_rows = delete_stmt.execute([video_path])?;
+        Ok(affected_rows)
+    }
+
+    /// 检查视频记录是否存在（通过ID）
+    pub fn video_exists_by_id(&self, video_id: i64) -> Result<bool> {
+        let stmt = "SELECT COUNT(*) FROM videos WHERE id = ?1";
+        let mut check_stmt = self.db_manager.conn.prepare(stmt)?;
+        let count: u32 = check_stmt.query_row([video_id], |row| row.get(0))?;
+        Ok(count > 0)
+    }
+
+    /// 检查视频记录是否存在（通过路径）
+    pub fn video_exists(&self, video_path: &str) -> Result<bool> {
+        let stmt = "SELECT COUNT(*) FROM videos WHERE path = ?1";
+        let mut check_stmt = self.db_manager.conn.prepare(stmt)?;
+        let count: u32 = check_stmt.query_row([video_path], |row| row.get(0))?;
+        Ok(count > 0)
+    }
+
+    /// 根据ID获取视频路径
+    pub fn get_video_path_by_id(&self, video_id: i64) -> Result<Option<String>> {
+        let stmt = "SELECT path FROM videos WHERE id = ?1";
+        let mut get_stmt = self.db_manager.conn.prepare(stmt)?;
+        let result = get_stmt.query_row([video_id], |row| row.get(0)).ok();
+        Ok(result)
+    }
 }

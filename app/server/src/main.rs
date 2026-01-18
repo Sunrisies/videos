@@ -5,7 +5,7 @@ mod utils;
 
 use axum::{
     http::{HeaderName, HeaderValue},
-    routing::get,
+    routing::{delete, get},
     Router,
 };
 use log::info;
@@ -68,6 +68,7 @@ async fn main() {
         .allow_methods(vec![
             axum::http::Method::GET,
             axum::http::Method::POST,
+            axum::http::Method::DELETE,
             axum::http::Method::OPTIONS,
         ])
         .allow_headers(vec![HeaderName::from_static("*")]);
@@ -79,6 +80,8 @@ async fn main() {
         .route("/api/videos", get(routes::list_videos))
         // 列出所有视频文件和目录 - 支持分页
         .route("/api/videos/paginated", get(routes::list_videos_paginated))
+        // 删除视频文件（从数据库和物理文件系统中删除）
+        .route("/api/videos/delete", delete(routes::delete_video))
         // 手动同步数据库
         .route("/api/sync", get(routes::sync_videos))
         // 文件监听器控制端点
@@ -104,6 +107,7 @@ async fn main() {
     info!("Available API endpoints:");
     info!("  GET  /api/videos              - List all videos");
     info!("  GET  /api/videos/paginated    - List all videos with pagination");
+    info!("  DELETE /api/videos/delete     - Delete video file (database + physical file)");
     info!("  GET  /api/sync                - Manual database sync");
     info!("  GET  /api/watcher/start       - Start file watcher");
     info!("  GET  /api/watcher/stop        - Stop file watcher");
