@@ -38,7 +38,7 @@ export function VideoListItem({ video, onClick }: VideoListItemProps) {
         {video.thumbnail ? (
           <div className="relative w-full h-full transition-transform duration-500 group-hover:scale-105">
             <Image
-              src={`http://192.168.1.10:3003\\${video.thumbnail}`}
+              src={`http://192.168.31.236:3003\\${video.thumbnail}`}
               alt={video.name}
               fill={true}
               unoptimized={true}

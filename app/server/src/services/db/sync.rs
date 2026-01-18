@@ -312,23 +312,21 @@ impl<'a> DirectorySync<'a> {
             debug!("aas: {:?}", video_info);
             // 检查缩略图是否已存在
             if thumb_path.exists() {
-                // 缩略图已存在，直接使用路径，不重新获取视频元数据
-                // 缩略图已存在，单独获取元数据
-                // let dur = ffmpeg.get_duration(path);
-                // let dims = ffmpeg.get_dimensions(path);
-
-                // 这些信息会在后续与数据库记录对比时，如果数据库中已有则不需要更新
-                (
-                    Some(thumb_path.to_string_lossy().to_string()),
-                    // dur,
-                    // dims.map(|(w, _)| w),
-                    // dims.map(|(_, h)| h),
-                    None, // 不获取 duration，使用数据库中的值
-                    None, // 不获取 width，使用数据库中的值
-                    None, // 不获取 height，使用数据库中的值
-                )
+                match video_info {
+                    Ok(info) => (
+                        Some(thumb_path.to_string_lossy().to_string()),
+                        Some(info.duration.to_string()),
+                        Some(info.width as i32),
+                        Some(info.height as i32),
+                    ),
+                    Err(_) => (
+                        Some(thumb_path.to_string_lossy().to_string()),
+                        None,
+                        None,
+                        None,
+                    ),
+                }
             } else {
-                // 缩略图不存在，使用合并调用一次性获取所有信息
                 let metadata = ffmpeg.extract_video_info(path, &thumb_path);
                 (
                     metadata.thumbnail_path,
