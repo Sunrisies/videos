@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Debug, Clone)]
 pub struct VideoInfo {
+    pub id: i64,
     pub name: String,
     pub path: String,
     pub r#type: String,

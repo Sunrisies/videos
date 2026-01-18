@@ -38,6 +38,7 @@ impl<'a> VideoDao<'a> {
                 subtitle: row.get(10)?,
                 width: row.get(12)?,
                 height: row.get(13)?,
+                id: row.get(14)?,
             })
         })?;
 
@@ -71,6 +72,7 @@ impl<'a> VideoDao<'a> {
                 subtitle: row.get(10)?,
                 width: row.get(11)?,
                 height: row.get(12)?,
+                id: row.get(13)?,
             })
         })?;
 
@@ -136,7 +138,7 @@ impl<'a> VideoDao<'a> {
 
         // 构建完整的查询语句
         let query = format!(
-            "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, width, height
+            "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, width, height,id
              FROM videos
              {}
              {}
@@ -190,6 +192,7 @@ impl<'a> VideoDao<'a> {
                     subtitle: row.get(10)?,
                     width: row.get(11)?,
                     height: row.get(12)?,
+                    id: row.get(13)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;

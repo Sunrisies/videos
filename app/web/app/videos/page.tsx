@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect, useCallback } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useCallback, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { VideoListItem } from "@/components/video-list-item"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -13,6 +13,7 @@ import { useDataCache } from "@/hooks/useDataCache"
 
 // API返回的视频数据接口
 interface ApiVideoItem {
+  id?: string | number
   name: string
   path: string
   type: string
@@ -47,8 +48,10 @@ const fetchVideosFromApi = async (page: number = 1, pageSize: number = 10): Prom
     throw new Error("Failed to fetch videos")
   }
   const data: PaginatedResponse = await response.json()
+  console.log(data, 'data')
   // 转换字段名以匹配类型定义
   const videos = data.videos.map((video: ApiVideoItem) => ({
+    id: video.id,
     name: video.name,
     path: video.path,
     type: video.type,
@@ -72,6 +75,7 @@ const fetchVideosFromApi = async (page: number = 1, pageSize: number = 10): Prom
 
 export default function VideosPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, requireAuth } = useAuth()
   const [searchQuery, setSearchQuery] = useState("")
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid")
@@ -82,6 +86,17 @@ export default function VideosPage() {
   const pageSize = 10
   // 使用自定义Hook来保存和恢复滚动位置
   const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
+
+  // 从 URL 查询参数中获取当前页码
+  useEffect(() => {
+    const pageParam = searchParams.get("page")
+    if (pageParam) {
+      const page = parseInt(pageParam, 10)
+      if (page >= 1) {
+        setCurrentPage(page)
+      }
+    }
+  }, [searchParams])
 
   // 使用缓存 Hook 获取视频数据
   const {
@@ -110,10 +125,27 @@ export default function VideosPage() {
     }
   }, [paginatedData])
 
-  // 当筛选条件改变时，重置到第一页
+  // 保存上一次的筛选条件，用于检测是否真正改变
+  const prevFilterTypeRef = useRef(filterType)
+  const prevSearchQueryRef = useRef(searchQuery)
+
+  // 当筛选条件改变时，重置到第一页并更新 URL
   useEffect(() => {
-    setCurrentPage(1)
-  }, [filterType, searchQuery])
+    // 检查筛选条件是否真正改变（而不是组件重新挂载）
+    const filterTypeChanged = prevFilterTypeRef.current !== filterType
+    const searchQueryChanged = prevSearchQueryRef.current !== searchQuery
+
+    if (filterTypeChanged || searchQueryChanged) {
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("page", "1")
+      router.push(`/videos?${params.toString()}`, { scroll: false })
+      setCurrentPage(1)
+    }
+
+    // 更新引用
+    prevFilterTypeRef.current = filterType
+    prevSearchQueryRef.current = searchQuery
+  }, [filterType, searchQuery, searchParams, router])
 
   // 路由守卫：检查授权状态
   useEffect(() => {
@@ -127,10 +159,18 @@ export default function VideosPage() {
     if (!loading && videos && videos.length > 0) {
       // 检查是否从播放页面返回
       const isReturningFromPlay = sessionStorage.getItem("returningFromPlay") === "true"
+      // 检查是否需要刷新视频列表
+      const shouldRefreshVideos = sessionStorage.getItem("shouldRefreshVideos") === "true"
 
       if (isReturningFromPlay) {
         // 清除标记
         sessionStorage.removeItem("returningFromPlay")
+
+        // 如果需要刷新，清除缓存并重新获取数据
+        if (shouldRefreshVideos) {
+          sessionStorage.removeItem("shouldRefreshVideos")
+          refresh()
+        }
 
         // 使用多种方式确保滚动位置恢复
         const restoreScroll = () => {
@@ -168,7 +208,7 @@ export default function VideosPage() {
         }
       }
     }
-  }, [loading, videos])
+  }, [loading, videos, refresh])
 
   const filteredVideos = (videos || []).filter((video) => {
     const matchesSearch = video.name.toLowerCase().includes(searchQuery.toLowerCase())
@@ -179,14 +219,17 @@ export default function VideosPage() {
   // 处理分页变化
   const handlePageChange = (newPage: number) => {
     if (newPage >= 1 && newPage <= totalPages) {
-      setCurrentPage(newPage)
+      // 更新 URL 查询参数
+      const params = new URLSearchParams(searchParams.toString())
+      params.set("page", newPage.toString())
+      router.push(`/videos?${params.toString()}`, { scroll: false })
       window.scrollTo({ top: 0, behavior: 'smooth' })
     }
   }
 
   // 生成页码数组
   const getPageNumbers = () => {
-    const pages: number[] = []
+    const pages: (number | string)[] = []
 
     // 计算显示的起始页码
     let startPage = Math.max(1, currentPage - 2)
@@ -214,7 +257,10 @@ export default function VideosPage() {
 
     // 将视频数据存储到 sessionStorage
     sessionStorage.setItem("currentVideo", JSON.stringify(video))
-    router.push("/videos/play")
+
+    // 构建播放页面的 URL，包含当前页码参数
+    const playUrl = `/videos/play?page=${currentPage}`
+    router.push(playUrl)
   }
 
   return (

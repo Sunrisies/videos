@@ -309,7 +309,6 @@ impl<'a> DirectorySync<'a> {
         let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
             let ffmpeg = get_ffmpeg_service();
             let video_info = get_video_info(&path.to_string_lossy().to_string());
-            debug!("aas: {:?}", video_info);
             // 检查缩略图是否已存在
             if thumb_path.exists() {
                 match video_info {

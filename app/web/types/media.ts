@@ -1,4 +1,5 @@
 export interface MediaItem {
+  id?: string | number // 视频ID
   name: string
   path: string
   type: string

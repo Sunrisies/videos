@@ -1,10 +1,18 @@
 "use client"
 
 import { useEffect, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { MobileVideoPlayer } from "@/components/mobile-video-player"
 import { Button } from "@/components/ui/button"
-import { ChevronLeft, Share2, Clock, FileVideo, Download, Fullscreen, Info, X } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import { ChevronLeft, Share2, Clock, FileVideo, Download, Fullscreen, Info, X, Trash2 } from "lucide-react"
 import type { MediaItem } from "@/types/media"
 import { useAuth } from "@/hooks/useAuth"
 
@@ -69,9 +77,13 @@ function VideoInfoCard({ video }: { video: MediaItem }) {
 
 export default function VideoPlayPage() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { isAuthenticated, isLoading: authLoading, requireAuth } = useAuth()
   const [video, setVideo] = useState<MediaItem | null>(null)
   const [showDetails, setShowDetails] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [pageFromUrl, setPageFromUrl] = useState(1)
 
   // 路由守卫：检查授权状态
   useEffect(() => {
@@ -79,6 +91,17 @@ export default function VideoPlayPage() {
       requireAuth("/videos/play")
     }
   }, [authLoading, isAuthenticated, requireAuth])
+
+  // 从 URL 参数中获取页码
+  useEffect(() => {
+    const pageParam = searchParams.get("page")
+    if (pageParam) {
+      const page = parseInt(pageParam, 10)
+      if (page >= 1) {
+        setPageFromUrl(page)
+      }
+    }
+  }, [searchParams])
 
   useEffect(() => {
     // 从 sessionStorage 获取视频数据
@@ -102,8 +125,14 @@ export default function VideoPlayPage() {
   const handleBack = () => {
     // 先设置标记，再导航
     sessionStorage.setItem("returningFromPlay", "true")
+    // 使用 URL 参数中的页码返回
+    const params = new URLSearchParams()
+    if (pageFromUrl > 1) {
+      params.set("page", pageFromUrl.toString())
+    }
+    const url = params.toString() ? `/videos?${params.toString()}` : "/videos"
     // 使用 replace 而不是 push，避免在播放页面历史记录堆积
-    router.replace("/videos")
+    router.replace(url)
   }
 
   const handleShare = () => {
@@ -113,6 +142,57 @@ export default function VideoPlayPage() {
         text: `观看视频：${video.name}`,
         url: window.location.href,
       })
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!video) return
+
+    // 关闭对话框
+    setShowDeleteDialog(false)
+    setIsDeleting(true)
+
+    try {
+      const response = await fetch(
+        `http://192.168.31.236:3003/api/videos/delete?id=${video.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+            'Accept': '*/*',
+            'Host': '192.168.31.236:3003',
+            'Connection': 'keep-alive',
+          },
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        // 删除成功，清除 sessionStorage 中的视频数据
+        sessionStorage.removeItem("currentVideo")
+        // 设置标记，让视频列表页面知道需要刷新
+        sessionStorage.setItem("shouldRefreshVideos", "true")
+        // 返回视频列表页，使用 URL 参数中的页码
+        const params = new URLSearchParams()
+        if (pageFromUrl > 1) {
+          params.set("page", pageFromUrl.toString())
+        }
+        const url = params.toString() ? `/videos?${params.toString()}` : "/videos"
+        sessionStorage.setItem("returningFromPlay", "true")
+        router.replace(url)
+      } else {
+        throw new Error(result.message || "删除失败")
+      }
+    } catch (error) {
+      console.error('删除失败:', error)
+      alert(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -156,6 +236,15 @@ export default function VideoPlayPage() {
             >
               <Share2 className="w-5 h-5" />
             </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              onClick={() => setShowDeleteDialog(true)}
+              disabled={isDeleting}
+              className="h-10 w-10 hover:bg-destructive/20 text-destructive transition-colors"
+            >
+              <Trash2 className="w-5 h-5" />
+            </Button>
           </div>
         </div>
       </header>
@@ -191,6 +280,34 @@ export default function VideoPlayPage() {
 
       {/* 底部安全区域 */}
       <div className="fixed bottom-0 left-0 right-0 h-[env(safe-area-inset-bottom)] bg-background" />
+
+      {/* 删除确认对话框 */}
+      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+            <DialogDescription>
+              确定要删除视频 "{video.name}" 吗？此操作无法撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setShowDeleteDialog(false)}
+              disabled={isDeleting}
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleDelete}
+              disabled={isDeleting}
+            >
+              {isDeleting ? "删除中..." : "删除"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
