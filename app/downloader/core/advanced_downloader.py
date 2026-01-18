@@ -161,8 +161,17 @@ class StreamDownloadManager:
 
         # 检查文件是否已存在
         if os.path.exists(filepath):
-            print(f"✓ {task_name}: {filename} 已存在，跳过")
-            return True
+            # 验证已存在的文件是否有效
+            if check_ts_header(filepath):
+                print(f"✓ {task_name}: {filename} 已存在，跳过")
+                return True
+            else:
+                # 文件存在但无效，删除并重新下载
+                try:
+                    os.remove(filepath)
+                except:
+                    pass
+
         try:
             # 使用重试机制下载
             def _download():
@@ -225,9 +234,13 @@ class StreamDownloadManager:
                         return False
                 else:
                     print(f"不进行解密的文件: {task_name}: {filename}")
-                # 写入文件
+                
+                # 写入文件并确保数据完全写入磁盘
                 with open(filepath, 'wb') as f:
                     f.write(data)
+                    # 强制刷新缓冲区，确保数据写入磁盘
+                    f.flush()
+                    os.fsync(f.fileno())
 
                 # 验证文件是否有效TS格式（双重检查）
                 if not check_ts_header(filepath):
@@ -456,7 +469,15 @@ class StreamDownloadManager:
         task_temp_dir = os.path.join(self.config.temp_dir, task.name)
         tracker: Optional[SegmentProgressTracker] = None
         self._total_progress += 1
-        self.logger.info(f"任务 {self._total_progress}/{self._total_tasks} 已完成")
+        self.logger.info(f"任务 {self._total_progress}/{self._total_tasks} 开始处理")
+        
+        # 注册任务到进度管理器（即使解析失败也要注册）
+        if self._progress_manager:
+            self._progress_manager.register_task(task.name, 0)  # 先注册，总数为0
+            tracker = SegmentProgressTracker(
+                task.name, 0, self._progress_manager)
+            tracker.start()
+        
         try:
             # 解析M3U8
             parser = M3U8Parser(verify_ssl=self.config.verify_ssl)
@@ -464,15 +485,19 @@ class StreamDownloadManager:
                 task.url, self.config.headers)
 
             if not ts_files:
+                # 解析失败，标记任务失败
+                if tracker:
+                    tracker.finish(success=False, message="M3U8解析失败")
                 return False
             total_segments = len(ts_files)
 
-            # 注册任务到进度管理器
-            if self._progress_manager:
-                self._progress_manager.register_task(task.name, total_segments)
-                tracker = SegmentProgressTracker(
-                    task.name, total_segments, self._progress_manager)
-                tracker.start()
+            # 更新任务总数
+            if tracker:
+                tracker.total_segments = total_segments
+                if self._progress_manager:
+                    task_progress = self._progress_manager.get_task(task.name)
+                    if task_progress:
+                        task_progress.total_segments = total_segments
 
             # 设置加密信息
             enc_info = self._build_encryption_info(parse_info, task)
@@ -498,7 +523,7 @@ class StreamDownloadManager:
                 # 直接合并
                 self._merge_task.append(self._merge_pool.submit(self.merge_files, ts_files, output_file, task_temp_dir))
 
-                return False
+                return True
 
             # 建立 URL -> 原始索引 的映射，确保segment_index正确
             url_to_index_map = {url: i for i, url in enumerate(ts_files)}

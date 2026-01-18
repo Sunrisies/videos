@@ -123,13 +123,11 @@ class FileMerger:
                     stderr=subprocess.PIPE,
                     check=True
                 )
-
                 # 清理临时文件
                 if os.path.exists(list_file):
                     os.remove(list_file)
-
                 # 清理TS文件
-                for url in list_file:
+                for url in file_list:
                     filename = self._extract_filename(url)
                     filepath = os.path.join(temp_dir, filename)
                     if os.path.exists(filepath):
@@ -138,9 +136,15 @@ class FileMerger:
                         except Exception as e:
                             if self.logger:
                                 self.logger.warning(f"删除临时文件 {filename} 失败: {e}")
-
+                # 删除目录
+                if os.path.exists(temp_dir):
+                    try:
+                        os.rmdir(temp_dir)
+                    except Exception as e:
+                        if self.logger:
+                            self.logger.warning(f"删除临时目录 {temp_dir} 失败: {e}")
                 if self.config.show_progress and not self._quiet_mode:
-                    self._safe_print("✅ 文件合并完成")
+                    self._s# # afe_print("✅ 文件合并完成")
 
                 return True
 

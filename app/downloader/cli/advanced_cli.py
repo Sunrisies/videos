@@ -99,7 +99,7 @@ class AdvancedM3U8CLI:
         if args.no_ssl_verify:
             config.verify_ssl = False
         if args.no_progress:
-            config.show_progress = False
+            config.show_progress = True
         if args.no_logging:
             config.enable_logging = True
 
@@ -153,9 +153,9 @@ class AdvancedM3U8CLI:
             config = ConfigTemplates.low_bandwidth()
 
         # 并发数设置
-        max_concurrent = safe_input("\n最大并发任务数 (默认6): ", "6")
+        max_concurrent = safe_input("\n最大并发任务数 (默认10): ", "10")
         if not max_concurrent.isdigit():
-            max_concurrent = 6
+            max_concurrent = 10
         else:
             max_concurrent = int(max_concurrent)
 

@@ -42,7 +42,7 @@ interface PaginatedResponse {
 }
 
 
-const fetchVideosFromApi = async (page: number = 1, pageSize: number = 10): Promise<{ videos: MediaItem[], total: number, totalPages: number }> => {
+const fetchVideosFromApi = async (page: number = 1, pageSize: number = 20): Promise<{ videos: MediaItem[], total: number, totalPages: number }> => {
   const response = await fetch(`http://192.168.31.236:3003/api/videos/paginated?page_size=${pageSize}&page=${page}`)
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
@@ -83,7 +83,7 @@ export default function VideosPage() {
   const [currentPage, setCurrentPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
   const [totalVideos, setTotalVideos] = useState(0)
-  const pageSize = 10
+  const pageSize = 20
   // 使用自定义Hook来保存和恢复滚动位置
   const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
 
@@ -91,7 +91,7 @@ export default function VideosPage() {
   useEffect(() => {
     const pageParam = searchParams.get("page")
     if (pageParam) {
-      const page = parseInt(pageParam, 10)
+      const page = parseInt(pageParam, 20)
       if (page >= 1) {
         setCurrentPage(page)
       }
@@ -176,7 +176,7 @@ export default function VideosPage() {
         const restoreScroll = () => {
           const savedPosition = sessionStorage.getItem("videosPageScrollPosition")
           if (savedPosition) {
-            const position = parseInt(savedPosition, 10)
+            const position = parseInt(savedPosition, 20)
 
             // 立即设置滚动位置
             window.scrollTo(0, position)
