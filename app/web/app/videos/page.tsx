@@ -91,7 +91,8 @@ export default function VideosPage() {
   useEffect(() => {
     const pageParam = searchParams.get("page")
     if (pageParam) {
-      const page = parseInt(pageParam, 20)
+      const page = parseInt(pageParam, 10)
+      console.log(page, 'page')
       if (page >= 1) {
         setCurrentPage(page)
       }
@@ -176,7 +177,7 @@ export default function VideosPage() {
         const restoreScroll = () => {
           const savedPosition = sessionStorage.getItem("videosPageScrollPosition")
           if (savedPosition) {
-            const position = parseInt(savedPosition, 20)
+            const position = parseInt(savedPosition, 10)
 
             // 立即设置滚动位置
             window.scrollTo(0, position)
@@ -231,8 +232,9 @@ export default function VideosPage() {
   const getPageNumbers = () => {
     const pages: (number | string)[] = []
 
-    // 计算显示的起始页码
-    let startPage = Math.max(1, currentPage - 2)
+    // 从当前页开始显示
+    let startPage = currentPage
+    console.log(currentPage, ';----------')
     let endPage = startPage + 4
 
     // 如果结束页超过总页数，调整起始页
@@ -250,6 +252,8 @@ export default function VideosPage() {
   }
 
 
+
+
   const handleVideoClick = (video: MediaItem) => {
     // 保存当前滚动位置到sessionStorage
     const scrollPosition = window.scrollY
@@ -257,7 +261,6 @@ export default function VideosPage() {
 
     // 将视频数据存储到 sessionStorage
     sessionStorage.setItem("currentVideo", JSON.stringify(video))
-
     // 构建播放页面的 URL，包含当前页码参数
     const playUrl = `/videos/play?page=${currentPage}`
     router.push(playUrl)
@@ -385,39 +388,64 @@ export default function VideosPage() {
 
             {/* 分页控件 */}
             {totalPages > 1 && (
-              <div className="mt-6 flex items-center justify-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(currentPage - 1)}
-                  disabled={currentPage === 1}
-                >
-                  上一页
-                </Button>
-
-                {getPageNumbers().map((page, index) => (
+              <>
+                <div className="mt-6 flex items-center justify-center gap-2">
                   <Button
-                    key={index}
-                    variant={page === currentPage ? "default" : "outline"}
+                    variant="outline"
                     size="sm"
-                    className={page === "..." ? "cursor-default" : ""}
-                    onClick={() => typeof page === "number" && handlePageChange(page)}
-                    disabled={page === "..."}
+                    onClick={() => handlePageChange(currentPage - 1)}
+                    disabled={currentPage === 1}
                   >
-                    {page}
+                    上一页
                   </Button>
-                ))}
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => handlePageChange(currentPage + 1)}
-                  disabled={currentPage === totalPages}
-                >
-                  下一页
-                </Button>
-              </div>
+                  {getPageNumbers().map((page, index) => (
+                    <Button
+                      key={index}
+                      variant={page === currentPage ? "default" : "outline"}
+                      size="sm"
+                      className={page === "..." ? "cursor-default" : ""}
+                      onClick={() => typeof page === "number" && handlePageChange(page)}
+                      disabled={page === "..."}
+                    >
+                      {page}
+                    </Button>
+                  ))}
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => handlePageChange(currentPage + 1)}
+                    disabled={currentPage === totalPages}
+                  >
+                    下一页
+                  </Button>
+                </div>
+
+                {/* 跳转功能单独一行 */}
+                <div className="mt-3 flex items-center justify-center gap-2">
+                  <span className="text-sm text-muted-foreground">跳转到</span>
+                  <Input
+                    type="number"
+                    min={1}
+                    max={totalPages}
+                    className="w-20 h-8 text-center"
+                    placeholder="页码"
+                    onKeyPress={(e) => {
+                      if (e.key === 'Enter') {
+                        const page = parseInt(e.currentTarget.value, 10);
+                        if (page >= 1 && page <= totalPages) {
+                          handlePageChange(page);
+                          e.currentTarget.value = '';
+                        }
+                      }
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">/ {totalPages} 页</span>
+                </div>
+              </>
             )}
+
           </>
         )}
       </main>
