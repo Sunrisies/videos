@@ -99,9 +99,9 @@ class AdvancedM3U8CLI:
         if args.no_ssl_verify:
             config.verify_ssl = False
         if args.no_progress:
-            config.show_progress = True
+            config.show_progress = False
         if args.no_logging:
-            config.enable_logging = True
+            config.enable_logging = False
 
         return config
 
@@ -130,7 +130,7 @@ class AdvancedM3U8CLI:
         """批量下载交互"""
         # json_file = safe_input("\n请输入JSON配置文件路径: ")
         # print(f"文件路径: {json_file}")
-        json_file = r"F:\node\videos\app\downloader\examples\tasks.example1.json"
+        json_file = r"D:\project\project\videos\app\downloader\examples\tasks.example.json"
         if not os.path.exists(json_file):
             print(f"文件不存在: {json_file}")
             return False
@@ -153,9 +153,9 @@ class AdvancedM3U8CLI:
             config = ConfigTemplates.low_bandwidth()
 
         # 并发数设置
-        max_concurrent = safe_input("\n最大并发任务数 (默认10): ", "10")
+        max_concurrent = safe_input("\n最大并发任务数 (默认2): ", "2")
         if not max_concurrent.isdigit():
-            max_concurrent = 10
+            max_concurrent = 2
         else:
             max_concurrent = int(max_concurrent)
 
@@ -313,7 +313,10 @@ class AdvancedM3U8CLI:
             print(f"🔗 URL: {args.url}")
             print(f"📁 输出: {output}")
 
-            return self.downloader.download_single(task_name, args.url, output_dir, {"output_file": output})
+            # 创建单个任务并下载
+            task = DownloadTask(task_name, args.url, output_dir)
+            results = self.downloader.manager.download_batch_tasks([task], 1)
+            return results.get(task_name, False)
 
         return False
 

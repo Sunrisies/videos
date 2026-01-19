@@ -17,7 +17,7 @@ from .json_loader import JSONTaskLoader
 from .merge_files import FileMerger
 from .parser import M3U8Parser
 from .crypto import EncryptionInfo, KeyManager, AESDecryptor, CryptoHelper
-from .progress import MultiTaskProgress, SegmentProgressTracker
+from .progress import MultiTaskProgress, SegmentProgressTracker, TaskStatus
 from .utils import (
     RetryHandler, setup_logger, create_session, extract_filename_from_url,
     disable_console_logging, enable_console_logging, check_ts_header, extract_filename
@@ -233,7 +233,7 @@ class StreamDownloadManager:
                         self._safe_print(f"❌ {task_name}: {filename} - {error_msg}")
                         return False
                 else:
-                    print(f"不进行解密的文件: {task_name}: {filename}")
+                    self.logger.info(f"文件没有加密: {task_name}: {filename}")
                 
                 # 写入文件并确保数据完全写入磁盘
                 with open(filepath, 'wb') as f:
@@ -399,34 +399,38 @@ class StreamDownloadManager:
                     futures[future] = task.name
 
                 # 收集结果
+                completed_count = 0
                 for future in as_completed(futures):
                     task_name = futures[future]
                     try:
                         result = future.result()
                         results[task_name] = result
+                        completed_count += 1
                     except Exception as e:
                         results[task_name] = False
                         if self.logger:
                             self.logger.error(f"任务 {task_name} 异常: {e}")
 
         finally:
-            # 恢复非静默模式
-            self._quiet_mode = True
-
-            # 恢复控制台日志输出
-            if self.logger:
-                enable_console_logging(self.logger)
-
             # 等待所有合并任务完成
             if self._merge_task:
                 print(f"\n⏳ 等待合并任务完成...")
                 for future in self._merge_task:
                     try:
-                        future.result()
+                        merge_result = future.result()
+                        if self.logger:
+                            self.logger.info(f"合并任务完成: {merge_result}")
                     except Exception as e:
                         if self.logger:
                             self.logger.error(f"合并任务异常: {e}")
                 self._merge_task = []
+
+            # 恢复非静默模式
+            self._quiet_mode = False
+
+            # 恢复控制台日志输出
+            if self.logger:
+                enable_console_logging(self.logger)
 
             # 打印汇总信息
             if self._progress_manager:
@@ -469,14 +473,16 @@ class StreamDownloadManager:
         task_temp_dir = os.path.join(self.config.temp_dir, task.name)
         tracker: Optional[SegmentProgressTracker] = None
         self._total_progress += 1
-        self.logger.info(f"任务 {self._total_progress}/{self._total_tasks} 开始处理")
+        if self.logger:
+            self.logger.info(f"任务 {self._total_progress}/{self._total_tasks} 开始处理")
         
         # 注册任务到进度管理器（即使解析失败也要注册）
         if self._progress_manager:
+            # 先注册任务，但总数暂时为0，稍后更新
             self._progress_manager.register_task(task.name, 0)  # 先注册，总数为0
             tracker = SegmentProgressTracker(
                 task.name, 0, self._progress_manager)
-            tracker.start()
+            tracker.start_download()  # 开始下载阶段
         
         try:
             # 解析M3U8
@@ -491,13 +497,9 @@ class StreamDownloadManager:
                 return False
             total_segments = len(ts_files)
 
-            # 更新任务总数
+            # 更新任务总数 - 这是关键修复点
             if tracker:
-                tracker.total_segments = total_segments
-                if self._progress_manager:
-                    task_progress = self._progress_manager.get_task(task.name)
-                    if task_progress:
-                        task_progress.total_segments = total_segments
+                tracker.update_total_segments(total_segments)
 
             # 设置加密信息
             enc_info = self._build_encryption_info(parse_info, task)
@@ -515,15 +517,32 @@ class StreamDownloadManager:
 
             # 下载未完成的文件（使用线程池并发下载）
             remaining_urls = [url for url in ts_files if url not in downloaded]
-            self.logger.info(f"  [{task.name}] 剩余未下载的文件: {len(remaining_urls)}")
+            if self.logger:
+                self.logger.info(f"  [{task.name}] 剩余未下载的文件: {len(remaining_urls)}")
             if len(remaining_urls)  == 0:
-                self.logger.info(f"任务 {task.name} 已完成,开始合并")
+                if self.logger:
+                    self.logger.info(f"任务 {task.name} 已完成,开始合并")
                 os.makedirs(task.output_dir, exist_ok=True)
                 output_file = os.path.join(task.output_dir, f"{task.name}.mp4")
+                
+                # 开始合并阶段
+                if tracker:
+                    tracker.start_merge()
+                
                 # 直接合并
-                self._merge_task.append(self._merge_pool.submit(self.merge_files, ts_files, output_file, task_temp_dir))
-
-                return True
+                merge_future = self._merge_pool.submit(self.merge_files, ts_files, output_file, task_temp_dir)
+                self._merge_task.append(merge_future)
+                
+                # 等待合并完成
+                try:
+                    merge_success = merge_future.result()
+                    if tracker:
+                        tracker.on_merge_complete(success=merge_success, message="合并完成" if merge_success else "合并失败")
+                    return merge_success
+                except Exception as e:
+                    if tracker:
+                        tracker.on_merge_complete(success=False, message=f"合并异常: {str(e)}")
+                    return False
 
             # 建立 URL -> 原始索引 的映射，确保segment_index正确
             url_to_index_map = {url: i for i, url in enumerate(ts_files)}
@@ -552,7 +571,8 @@ class StreamDownloadManager:
                     url = futures[future]
                     filename = extract_filename(url)
                     try:
-                        self.logger.info(f"任务 {task.name} 下载完成: {url}")
+                        if self.logger:
+                            self.logger.info(f"任务 {task.name} 下载完成: {url}")
                         success = future.result()
                         if tracker:
                             tracker.on_segment_complete(
@@ -645,15 +665,30 @@ class StreamDownloadManager:
                         self.logger.error(f"任务 {task.name}: 无效文件列表: {invalid_files[:10]}")
                     return False
 
-                # 提交合并任务（只提交一次）
+                # 开始合并阶段
                 if tracker:
-                    tracker.on_merge_start()
-                    self.logger.debug(f"[{task.name}] 合并中...........")
-                self._merge_task.append(self._merge_pool.submit(self.merge_files, ts_files, output_file, task_temp_dir))
+                    tracker.start_merge()
+                    
+                # 提交合并任务（只提交一次）
+                merge_future = self._merge_pool.submit(self.merge_files, ts_files, output_file, task_temp_dir)
+                self._merge_task.append(merge_future)
+                
+                # 等待合并完成
+                try:
+                    merge_success = merge_future.result()
+                    if tracker:
+                        tracker.on_merge_complete(success=merge_success, message="合并完成" if merge_success else "合并失败")
+                    return merge_success
+                except Exception as e:
+                    if tracker:
+                        tracker.on_merge_complete(success=False, message=f"合并异常: {str(e)}")
+                    return False
         except Exception as e:
             if self.logger:
                 self.logger.warning(f"下载失败: {e}")
-        return True
+            if tracker:
+                tracker.finish(success=False, message=f"异常: {str(e)}")
+            return False
 
     def get_downloaded_files(self, save_dir: str, urls: List[str], validate: bool = False) -> set:
         """
@@ -703,6 +738,23 @@ class AdvancedM3U8Downloader:
         self.config = config or DownloadConfig()
         self.manager = StreamDownloadManager(self.config)
         self.task_loader = JSONTaskLoader()
+
+    def download_single(self, name: str, url: str, output_dir: str, params: dict = None) -> bool:
+        """
+        下载单个任务
+
+        Args:
+            name: 任务名称
+            url: M3U8 URL
+            output_dir: 输出目录
+            params: 额外参数
+
+        Returns:
+            bool: 是否成功
+        """
+        task = DownloadTask(name, url, output_dir, params)
+        results = self.manager.download_batch_tasks([task], 1)
+        return results.get(name, False)
 
     def download_from_json(self, json_file: str, base_output_dir: str, max_concurrent: int = 3) -> bool:
         """

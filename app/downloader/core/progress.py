@@ -16,7 +16,9 @@ class TaskStatus(Enum):
     """任务状态枚举"""
     PENDING = "pending"
     DOWNLOADING = "downloading"
+    DOWNLOAD_COMPLETED = "download_completed"  # 新增：下载完成
     MERGING = "merging"
+    MERGE_COMPLETED = "merge_completed"         # 新增：合并完成
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -120,8 +122,10 @@ class MultiTaskProgress:
 
         # 创建进度条
         if self._enabled and position >= 0:
+            # 确保即使初始总数为0也能正确显示
+            actual_total = total_segments if total_segments > 0 else 1  # 至少为1，避免tqdm问题
             task.pbar = tqdm(
-                total=total_segments,
+                total=actual_total,
                 desc=self._format_desc(task_name, TaskStatus.PENDING),
                 position=position,
                 leave=False,
@@ -130,6 +134,10 @@ class MultiTaskProgress:
                 mininterval=0.3,
                 bar_format='{desc} {bar} {n_fmt}/{total_fmt}'
             )
+            # 如果初始总数为0，手动设置为0显示
+            if total_segments == 0:
+                task.pbar.n = 0
+                task.pbar.refresh()
 
         return task
 
@@ -139,7 +147,9 @@ class MultiTaskProgress:
         status_icons = {
             TaskStatus.PENDING: "○",
             TaskStatus.DOWNLOADING: "↓",
+            TaskStatus.DOWNLOAD_COMPLETED: "↑",  # 下载完成
             TaskStatus.MERGING: "◎",
+            TaskStatus.MERGE_COMPLETED: "⊕",     # 合并完成
             TaskStatus.COMPLETED: "✓",
             TaskStatus.FAILED: "✗",
         }
@@ -273,7 +283,7 @@ class MultiTaskProgress:
             failed = sum(1 for t in self._tasks.values()
                          if t.status == TaskStatus.FAILED)
             in_progress = sum(1 for t in self._tasks.values() if t.status in (
-                TaskStatus.DOWNLOADING, TaskStatus.MERGING))
+                TaskStatus.DOWNLOADING, TaskStatus.MERGING, TaskStatus.DOWNLOAD_COMPLETED))
 
             return {
                 'total': total_tasks,
@@ -295,6 +305,7 @@ class MultiTaskProgress:
         print(f"  ❌ 失败: {summary['failed']}")
         if summary['in_progress'] > 0:
             print(f"  ⏳ 进行中: {summary['in_progress']}")
+        print(f"  📁 待处理: {summary['pending']}")
         print(f"{'='*60}\n")
 
     def clear(self):
@@ -331,8 +342,21 @@ class SegmentProgressTracker:
         self._failed = 0
         self._lock = threading.Lock()
 
-    def start(self):
-        """开始跟踪"""
+    def update_total_segments(self, new_total: int):
+        """更新总片段数"""
+        with self._lock:
+            self.total_segments = new_total
+            # 同时更新进度管理器中的任务信息
+            task_progress = self.progress_manager.get_task(self.task_name)
+            if task_progress:
+                task_progress.total_segments = new_total
+                if task_progress.pbar:
+                    task_progress.pbar.total = new_total
+                    # 更新进度条的显示，确保显示正确的总数
+                    task_progress.pbar.refresh()
+
+    def start_download(self):
+        """开始下载阶段"""
         self.progress_manager.update_task(
             self.task_name,
             status=TaskStatus.DOWNLOADING
@@ -353,22 +377,40 @@ class SegmentProgressTracker:
                 self._failed += 1
 
         self.progress_manager.increment_task(self.task_name, success)
+        
+        # 检查是否所有片段都下载完成
+        if self._completed + self._failed >= self.total_segments:
+            self.progress_manager.update_task(
+                self.task_name,
+                status=TaskStatus.DOWNLOAD_COMPLETED
+            )
 
-    def on_merge_start(self):
-        """开始合并"""
+    def start_merge(self):
+        """开始合并阶段"""
         self.progress_manager.update_task(
             self.task_name,
             status=TaskStatus.MERGING
         )
 
-    def finish(self, success: bool = True, message: str = ""):
-        """
-        完成跟踪
+    def on_merge_complete(self, success: bool = True, message: str = ""):
+        """合并完成"""
+        if success:
+            self.progress_manager.update_task(
+                self.task_name,
+                status=TaskStatus.MERGE_COMPLETED
+            )
+        else:
+            self.progress_manager.update_task(
+                self.task_name,
+                status=TaskStatus.FAILED
+            )
+            
+        # 最终完成状态
+        final_status = TaskStatus.COMPLETED if success else TaskStatus.FAILED
+        self.progress_manager.complete_task(self.task_name, success, message)
 
-        Args:
-            success: 是否成功
-            message: 完成消息
-        """
+    def finish(self, success: bool = True, message: str = ""):
+        """完成跟踪 - 完成整个任务"""
         self.progress_manager.complete_task(self.task_name, success, message)
 
     @property
