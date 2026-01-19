@@ -8,6 +8,7 @@ import sys
 import time
 import json
 import logging
+from logging.handlers import RotatingFileHandler  # 导入RotatingFileHandler
 import signal
 import warnings
 from typing import Dict, List, Optional, Callable
@@ -19,7 +20,7 @@ from urllib3.exceptions import InsecureRequestWarning
 
 # ==================== 新增: 通用工具函数 ====================
 
-def setup_logger(name: str, log_file: str = 'download.log', console_output: bool = True) -> logging.Logger:
+def setup_logger(name: str, log_file: str = 'download.log', console_output: bool = True, max_bytes: int = 10*1024*1024, backup_count: int = 5) -> logging.Logger:
     """
     配置并返回日志记录器
 
@@ -27,6 +28,8 @@ def setup_logger(name: str, log_file: str = 'download.log', console_output: bool
         name: 日志记录器名称
         log_file: 日志文件路径
         console_output: 是否输出到控制台
+        max_bytes: 单个日志文件最大大小（字节），默认10MB
+        backup_count: 保留的备份日志文件数量
 
     Returns:
         logging.Logger: 配置好的日志记录器
@@ -39,8 +42,13 @@ def setup_logger(name: str, log_file: str = 'download.log', console_output: bool
 
     logger.setLevel(logging.INFO)
 
-    # 文件 handler
-    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    # 文件 handler，使用RotatingFileHandler实现滚动
+    file_handler = RotatingFileHandler(
+        log_file, 
+        maxBytes=max_bytes, 
+        backupCount=backup_count, 
+        encoding='utf-8'
+    )
     file_handler.setFormatter(logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s'))
     logger.addHandler(file_handler)

@@ -15,8 +15,9 @@ from .utils import RetryHandler, create_session, check_ts_header, extract_filena
 class DownloadHandler:
     """下载处理器 - 专门处理单个文件的下载逻辑"""
 
-    def __init__(self, config: DownloadConfig):
+    def __init__(self, config: DownloadConfig, logger=None):
         self.config = config
+        self.logger = logger  # 添加logger属性
         self.session = create_session(
             self.config.verify_ssl, self.config.headers)
         # 重试处理器
@@ -84,7 +85,10 @@ class DownloadHandler:
 
         except Exception as e:
             error_msg = f"解密失败: {e}, segment_index={segment_index}, sequence_number={sequence_number}"
-            print(error_msg)
+            if self.logger:
+                self.logger.error(error_msg)
+            else:
+                print(error_msg)
             # 解密失败不应该返回原始数据，应该抛出异常
             raise ValueError(error_msg)
 
@@ -110,7 +114,8 @@ class DownloadHandler:
         if os.path.exists(filepath):
             # 验证已存在的文件是否有效
             if check_ts_header(filepath):
-                print(f"✓ {task_name}: {filename} 已存在，跳过")
+                if self.logger:
+                    self.logger.info(f"{task_name}: {filename} 已存在，跳过")
                 return True
             else:
                 # 文件存在但无效，删除并重新下载
@@ -159,19 +164,22 @@ class DownloadHandler:
                             data = self._decrypt_segment(key_content, data, segment_index, enc_info)
                             # 解密后立即验证数据是否有效（检查TS头部）
                             if len(data) < 4 or data[0] != 0x47:
-                                print(
-                                    f"解密后的数据不是有效的TS格式: 第一个字节=0x{data[0]:02X if len(data) > 0 else 0}")
+                                if self.logger:
+                                    self.logger.warning(f"解密后的数据不是有效的TS格式: 第一个字节=0x{data[0]:02X if len(data) > 0 else 0}")
 
                         except Exception as e:
                             error_msg = f"解密失败: {e}, segment_index={segment_index}"
-                            print(f"❌ {task_name}: {filename} - {error_msg}")
+                            if self.logger:
+                                self.logger.error(f"{task_name}: {filename} - {error_msg}")
                             return False
                     else:
                         error_msg = f"密钥缓存文件不存在: {cache_path}"
-                        print(f"❌ {task_name}: {filename} - {error_msg}")
+                        if self.logger:
+                            self.logger.error(f"{task_name}: {filename} - {error_msg}")
                         return False
                 else:
-                    print(f"文件没有加密: {task_name}: {filename}")
+                    if self.logger:
+                        self.logger.info(f"文件没有加密: {task_name}: {filename}")
 
                 # 写入文件并确保数据完全写入磁盘
                 with open(filepath, 'wb') as f:
@@ -189,7 +197,8 @@ class DownloadHandler:
                         pass
 
                     error_msg = f"文件不是有效的TS格式（可能解密失败）"
-                    print(f"❌ {task_name}: {filename} - {error_msg}")
+                    if self.logger:
+                        self.logger.error(f"{task_name}: {filename} - {error_msg}")
 
                     return False
 
@@ -198,10 +207,13 @@ class DownloadHandler:
             result = self.retry_handler.execute_with_retry(_download)
 
             if result:
-                print(f"{task_name}: {filename} 下载成功")
+                # 只在日志中记录成功消息，不在控制台显示
+                if self.logger:
+                    self.logger.info(f"{task_name}: {filename} 下载成功")
 
             return result
 
         except Exception as e:
-            print(f"✗ {task_name}: {filename} 下载失败 - {e}")
+            if self.logger:
+                self.logger.error(f"{task_name}: {filename} 下载失败 - {e}")
             return False

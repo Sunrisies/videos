@@ -50,7 +50,7 @@ class StreamDownloadManager:
         self._total_tasks = 0
 
         # ===== 组件初始化 =====
-        self.download_handler = DownloadHandler(self.config)
+        self.download_handler = DownloadHandler(self.config, self.logger)
         self.merge_handler = MergeHandler(self.config, self.logger)
         
         # CryptoHelper 作为一个独立对象引用
@@ -172,7 +172,9 @@ class StreamDownloadManager:
                 # 提交所有任务
                 futures = {}
                 for task in tasks:
-                    print(f"📊 提交任务: {task.name} 到线程池")
+                    if self.logger:
+                        self.logger.info(f"提交任务: {task.name} 到线程池")
+                    # 不在控制台显示提交任务信息，避免干扰进度条
                     future = executor.submit(
                         self._download_task_with_progress, task, len(tasks))
                     futures[future] = task.name
@@ -182,15 +184,18 @@ class StreamDownloadManager:
                 for future in as_completed(futures):
                     task_name = futures[future]
                     try:
-                        print(f"📊 开始获取任务 {task_name} 的结果")
+                        # 不显示获取任务结果的过程，避免干扰进度条
                         result = future.result()
-                        print(f"✅ 任务 {task_name} 完成，结果: {result}")
+                        if self.logger:
+                            self.logger.info(f"任务 {task_name} 完成，结果: {result}")
                         results[task_name] = result
                         completed_count += 1
                     except Exception as e:
-                        print(f"❌ 任务 {task_name} 执行异常: {e}")
+                        if self.logger:
+                            self.logger.error(f"任务 {task_name} 执行异常: {e}")
                         import traceback
-                        traceback.print_exc()
+                        if self.logger:
+                            self.logger.exception(e)
                         results[task_name] = False
                         if self.logger:
                             self.logger.error(f"任务 {task_name} 异常: {e}")

@@ -43,6 +43,11 @@ class DownloadConfig:
     verify_ssl: bool = False
     show_progress: bool = True
     enable_logging: bool = True
+    
+    # 日志配置
+    log_file: str = "download.log"                    # 日志文件路径
+    log_max_bytes: int = 10 * 1024 * 1024           # 单个日志文件最大大小（10MB）
+    log_backup_count: int = 5                        # 保留的备份日志文件数量
 
     # ============ 加密相关配置 ============
     # 是否自动解密加密的 TS 片段
