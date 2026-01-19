@@ -67,6 +67,14 @@ class MultiTaskProgress:
         self._enabled = True
         self._summary_bar: Optional[tqdm] = None
 
+    def __bool__(self):
+        """
+        确保MultiTaskProgress实例在布尔上下文中始终为True
+        
+        即使内部任务列表为空，进度管理器仍然有效
+        """
+        return True
+
     def enable(self):
         """启用进度显示"""
         self._enabled = True

@@ -7,9 +7,9 @@ from .parser import M3U8Parser, M3U8Info
 from .advanced_downloader import (
     AdvancedM3U8Downloader,
     DownloadTask,
-    StreamDownloadManager,
     JSONTaskLoader
 )
+from .stream_manager import StreamDownloadManager
 from .config import DownloadConfig, ConfigTemplates
 from .crypto import (
     EncryptionInfo,
@@ -37,6 +37,9 @@ from .utils import (
     extract_filename_from_url,
     format_progress
 )
+from .download_handler import DownloadHandler
+from .merge_handler import MergeHandler
+from .task_processor import TaskProcessor
 
 __all__ = [
     # 基础下载器
@@ -48,6 +51,11 @@ __all__ = [
     "DownloadTask",
     "StreamDownloadManager",
     "JSONTaskLoader",
+
+    # 处理器
+    "DownloadHandler",
+    "MergeHandler",
+    "TaskProcessor",
 
     # 配置
     "DownloadConfig",

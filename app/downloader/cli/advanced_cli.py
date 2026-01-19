@@ -10,6 +10,7 @@ import json
 
 from ..core.config import DownloadConfig, ConfigTemplates
 from ..core.advanced_downloader import AdvancedM3U8Downloader, DownloadTask, JSONTaskLoader
+from ..core.stream_manager import StreamDownloadManager
 from ..core.utils import print_banner, safe_input, confirm_action, FileValidator, URLProcessor
 
 

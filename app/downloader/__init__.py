@@ -8,9 +8,9 @@ from .core.config import DownloadConfig, ConfigTemplates
 from .core.advanced_downloader import (
     AdvancedM3U8Downloader, 
     DownloadTask, 
-    StreamDownloadManager,
     JSONTaskLoader
 )
+from .core.stream_manager import StreamDownloadManager
 from .core.utils import (
     FileValidator, 
     URLProcessor, 
