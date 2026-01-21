@@ -5,7 +5,7 @@
 
 import os
 import threading
-from typing import Optional
+from typing import Optional, Dict, Any
 from .crypto import EncryptionInfo
 from .config import DownloadConfig
 from .progress import SegmentProgressTracker
@@ -93,7 +93,7 @@ class DownloadHandler:
             raise ValueError(error_msg)
 
     def download_file_stream(self, url: str, save_path: str, filename: str, task_name: str, segment_index: int = 0,
-                             enc_info: Optional[EncryptionInfo] = None) -> bool:
+                             enc_info: Optional[EncryptionInfo] = None) -> Dict[str, Any]:
         """
         下载单个文件（流式，实时更新进度）
 
@@ -106,7 +106,11 @@ class DownloadHandler:
             enc_info: 加密信息
 
         Returns:
-            bool: 是否成功
+            Dict[str, Any]: 包含下载结果和错误信息的字典
+                - success: 是否成功
+                - filename: 文件名
+                - url: 下载URL
+                - error: 错误信息（如果失败）
         """
         filepath = os.path.join(save_path, filename)
 
@@ -116,7 +120,12 @@ class DownloadHandler:
             if check_ts_header(filepath):
                 if self.logger:
                     self.logger.info(f"{task_name}: {filename} 已存在，跳过")
-                return True
+                return {
+                    "success": True,
+                    "filename": filename,
+                    "url": url,
+                    "error": None
+                }
             else:
                 # 文件存在但无效，删除并重新下载
                 try:
@@ -171,12 +180,22 @@ class DownloadHandler:
                             error_msg = f"解密失败: {e}, segment_index={segment_index}"
                             if self.logger:
                                 self.logger.error(f"{task_name}: {filename} - {error_msg}")
-                            return False
+                            return {
+                                "success": False,
+                                "filename": filename,
+                                "url": url,
+                                "error": error_msg
+                            }
                     else:
                         error_msg = f"密钥缓存文件不存在: {cache_path}"
                         if self.logger:
                             self.logger.error(f"{task_name}: {filename} - {error_msg}")
-                        return False
+                        return {
+                            "success": False,
+                            "filename": filename,
+                            "url": url,
+                            "error": error_msg
+                        }
                 else:
                     if self.logger:
                         self.logger.info(f"文件没有加密: {task_name}: {filename}")
@@ -200,13 +219,23 @@ class DownloadHandler:
                     if self.logger:
                         self.logger.error(f"{task_name}: {filename} - {error_msg}")
 
-                    return False
+                    return {
+                        "success": False,
+                        "filename": filename,
+                        "url": url,
+                        "error": error_msg
+                    }
 
-                return True
+                return {
+                    "success": True,
+                    "filename": filename,
+                    "url": url,
+                    "error": None
+                }
 
             result = self.retry_handler.execute_with_retry(_download)
 
-            if result:
+            if result.get("success"):
                 # 只在日志中记录成功消息，不在控制台显示
                 if self.logger:
                     self.logger.info(f"{task_name}: {filename} 下载成功")
@@ -214,6 +243,12 @@ class DownloadHandler:
             return result
 
         except Exception as e:
+            error_msg = str(e)
             if self.logger:
                 self.logger.error(f"{task_name}: {filename} 下载失败 - {e}")
-            return False
+            return {
+                "success": False,
+                "filename": filename,
+                "url": url,
+                "error": error_msg
+            }

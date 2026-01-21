@@ -349,6 +349,7 @@ class SegmentProgressTracker:
         self._completed = 0
         self._failed = 0
         self._lock = threading.Lock()
+        self._failed_details = []  # 存储失败的详细信息
 
     def update_total_segments(self, new_total: int):
         """更新总片段数"""
@@ -370,19 +371,26 @@ class SegmentProgressTracker:
             status=TaskStatus.DOWNLOADING
         )
 
-    def on_segment_complete(self, success: bool = True, filename: str = ""):
+    def on_segment_complete(self, success: bool = True, filename: str = "", error: str = ""):
         """
         片段下载完成回调
 
         Args:
             success: 是否成功
             filename: 文件名
+            error: 错误信息
         """
         with self._lock:
             if success:
                 self._completed += 1
             else:
                 self._failed += 1
+                # 记录失败的详细信息
+                if filename:
+                    self._failed_details.append({
+                        "filename": filename,
+                        "error": error
+                    })
 
         self.progress_manager.increment_task(self.task_name, success)
         
@@ -419,6 +427,13 @@ class SegmentProgressTracker:
 
     def finish(self, success: bool = True, message: str = ""):
         """完成跟踪 - 完成整个任务"""
+        # 如果失败且有失败的详细信息，打印它们
+        if not success and self._failed_details:
+            print(f"\n❌ 任务 {self.task_name} 失败详情:")
+            for detail in self._failed_details:
+                print(f"  - 文件: {detail['filename']}")
+                print(f"    错误: {detail['error']}")
+        
         self.progress_manager.complete_task(self.task_name, success, message)
 
     @property
@@ -430,6 +445,12 @@ class SegmentProgressTracker:
     def failed(self) -> int:
         """失败数"""
         return self._failed
+
+    @property
+    def failed_details(self) -> List[Dict[str, str]]:
+        """获取失败的详细信息"""
+        with self._lock:
+            return self._failed_details.copy()
 
 
 def create_simple_progress_bar(

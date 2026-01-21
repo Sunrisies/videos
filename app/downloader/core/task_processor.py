@@ -5,7 +5,7 @@
 
 import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from .config import DownloadConfig
 from .download import DownloadTask
 from .parser import M3U8Parser
@@ -292,22 +292,42 @@ class TaskProcessor:
 
                 # 等待所有任务完成
                 completed_count = 0
+                failed_downloads = []  # 存储失败的下载信息
                 for future in as_completed(futures):
                     url = futures[future]
                     filename = extract_filename(url)
                     try:
                         if self.logger:
                             self.logger.info(f"任务 {task.name} 下载完成: {url}")
-                        success = future.result()
+                        result = future.result()
+                        success = result.get("success", False)
+                        error_msg = result.get("error", "")
                         if tracker:
                             tracker.on_segment_complete(
-                                success=success, filename=filename)
+                                success=success, filename=filename, error=error_msg)
                         if success:
                             completed_count += 1
+                        else:
+                            # 记录失败的下载信息
+                            failed_downloads.append({
+                                "filename": filename,
+                                "url": url,
+                                "error": error_msg
+                            })
+                            # 在控制台打印失败的详细信息
+                            print(f"❌ 下载失败: {filename} (URL: {url}) - {error_msg}")
                     except Exception as e:
+                        error_msg = str(e)
                         if tracker:
                             tracker.on_segment_complete(
-                                success=False, filename=filename)
+                                success=False, filename=filename, error=error_msg)
+                        failed_downloads.append({
+                            "filename": filename,
+                            "url": url,
+                            "error": error_msg
+                        })
+                        # 在控制台打印失败的详细信息
+                        print(f"❌ 下载失败: {filename} (URL: {url}) - {error_msg}")
                         if self.logger:
                             self.logger.error(f"下载片段 {url} 失败: {e}")
 
@@ -361,19 +381,26 @@ class TaskProcessor:
                         
                             # 重新下载文件
                             try:
-                                success = self.download_handler.download_file_stream(
+                                result = self.download_handler.download_file_stream(
                                     url, task_temp_dir, filename, task.name, url_to_index_map[url], enc_info)
+                                success = result.get("success", False)
                                 if success:
                                     if self.logger:
                                         self.logger.info(f"任务 {task.name}: 重试下载成功 {filename}")
                                 else:
                                     retry_urls.append(url)  # 重试失败，加入下次重试列表
+                                    error_msg = result.get("error", "未知错误")
                                     if self.logger:
-                                        self.logger.warning(f"任务 {task.name}: 重试下载失败 {filename}")
+                                        self.logger.warning(f"任务 {task.name}: 重试下载失败 {filename} - {error_msg}")
+                                    # 在控制台打印重试失败的详细信息
+                                    print(f"⚠️  重试下载失败: {filename} (URL: {url}) - {error_msg}")
                             except Exception as e:
                                 retry_urls.append(url)  # 出现异常，加入重试列表
+                                error_msg = str(e)
                                 if self.logger:
                                     self.logger.error(f"任务 {task.name}: 重试下载异常 {filename}, 错误: {e}")
+                                # 在控制台打印重试异常的详细信息
+                                print(f"❌ 重试下载异常: {filename} (URL: {url}) - {error_msg}")
 
                         if not retry_urls:
                             if self.logger:

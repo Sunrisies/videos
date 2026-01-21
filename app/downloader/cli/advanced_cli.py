@@ -317,7 +317,13 @@ class AdvancedM3U8CLI:
             # 创建单个任务并下载
             task = DownloadTask(task_name, args.url, output_dir)
             results = self.downloader.manager.download_batch_tasks([task], 1)
-            return results.get(task_name, False)
+            success = results.get(task_name, False)
+            
+            # 如果失败，打印详细信息
+            if not success:
+                print(f"\n❌ 任务 {task_name} 下载失败")
+            
+            return success
 
         return False
 

@@ -181,6 +181,7 @@ class StreamDownloadManager:
 
                 # 收集结果
                 completed_count = 0
+                failed_tasks = []  # 存储失败的任务信息
                 for future in as_completed(futures):
                     task_name = futures[future]
                     try:
@@ -189,7 +190,10 @@ class StreamDownloadManager:
                         if self.logger:
                             self.logger.info(f"任务 {task_name} 完成，结果: {result}")
                         results[task_name] = result
-                        completed_count += 1
+                        if result:
+                            completed_count += 1
+                        else:
+                            failed_tasks.append(task_name)
                     except Exception as e:
                         if self.logger:
                             self.logger.error(f"任务 {task_name} 执行异常: {e}")
@@ -197,6 +201,7 @@ class StreamDownloadManager:
                         if self.logger:
                             self.logger.exception(e)
                         results[task_name] = False
+                        failed_tasks.append(task_name)
                         if self.logger:
                             self.logger.error(f"任务 {task_name} 异常: {e}")
 
@@ -225,6 +230,16 @@ class StreamDownloadManager:
             if self._progress_manager:
                 print()  # 空行分隔进度条和汇总
                 self._progress_manager.print_summary()
+                
+                # 打印失败任务的详细信息
+                if failed_tasks:
+                    print(f"\n{'='*60}")
+                    print("❌ 失败任务详情")
+                    print(f"{'='*60}")
+                    for task_name in failed_tasks:
+                        print(f"  - 任务: {task_name}")
+                    print(f"{'='*60}\n")
+                
                 self._progress_manager.clear()
                 self._progress_manager = None
 

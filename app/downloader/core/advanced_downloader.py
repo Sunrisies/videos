@@ -4,7 +4,7 @@
 """
 
 import os
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 
 from .config import DownloadConfig
 from .download import DownloadTask
@@ -20,7 +20,7 @@ class AdvancedM3U8Downloader:
         self.manager = StreamDownloadManager(self.config)
         self.task_loader = JSONTaskLoader()
 
-    def download_single(self, name: str, url: str, output_dir: str, params: dict = None) -> bool:
+    def download_single(self, name: str, url: str, output_dir: str, params: dict = None) -> Dict[str, Any]:
         """
         下载单个任务
 
@@ -31,11 +31,20 @@ class AdvancedM3U8Downloader:
             params: 额外参数
 
         Returns:
-            bool: 是否成功
+            Dict[str, Any]: 包含下载结果和错误信息的字典
+                - success: 是否成功
+                - task_name: 任务名称
+                - error: 错误信息（如果失败）
         """
         task = DownloadTask(name, url, output_dir, params)
         results = self.manager.download_batch_tasks([task], 1)
-        return results.get(name, False)
+        success = results.get(name, False)
+        
+        return {
+            "success": success,
+            "task_name": name,
+            "error": None if success else f"任务 {name} 下载失败"
+        }
 
     def download_from_json(self, json_file: str, base_output_dir: str, max_concurrent: int = 3) -> bool:
         """
