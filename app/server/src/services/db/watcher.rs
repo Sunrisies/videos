@@ -26,8 +26,8 @@ impl FileWatcher {
         }
     }
 
-    /// 启动文件监听
-    pub fn start(&mut self, path: &str) -> Result<(), String> {
+    /// 启动文件监听（支持多个路径）
+    pub fn start(&mut self, paths: &[String]) -> Result<(), String> {
         let is_watching = self.is_watching.clone();
 
         // 检查是否已经在监听
@@ -38,9 +38,12 @@ impl FileWatcher {
             }
         }
 
-        let path = PathBuf::from(path);
-        if !path.exists() {
-            return Err(format!("路径不存在: {}", path.display()));
+        // 验证所有路径都存在
+        for path_str in paths {
+            let path = PathBuf::from(path_str);
+            if !path.exists() {
+                return Err(format!("路径不存在: {}", path.display()));
+            }
         }
 
         // 创建异步通道
@@ -50,6 +53,7 @@ impl FileWatcher {
         // 克隆数据库管理器用于回调
         let db_manager_clone = self.db_manager.clone();
         let is_watching_clone = is_watching.clone();
+        let paths_clone = paths.to_vec();
 
         // 启动同步任务
         tokio::spawn(async move {
@@ -78,7 +82,7 @@ impl FileWatcher {
                 let db_manager = db_manager_clone.lock().unwrap();
                 let sync = DirectorySync::new(&db_manager);
 
-                match sync.sync_directory("public") {
+                match sync.initialize_from_directory(&paths_clone, false) {
                     Ok(_) => println!("自动同步完成"),
                     Err(e) => eprintln!("自动同步失败: {}", e),
                 }
@@ -87,7 +91,7 @@ impl FileWatcher {
             println!("文件监听任务已停止");
         });
 
-        // 创建监听器
+        // 创建监听器并监听所有路径
         let tx_clone = tx.clone();
         let mut watcher = RecommendedWatcher::new(
             move |res: Result<Event, notify::Error>| {
@@ -105,10 +109,14 @@ impl FileWatcher {
         )
         .map_err(|e| format!("创建监听器失败: {}", e))?;
 
-        // 开始监听
-        watcher
-            .watch(&path, RecursiveMode::Recursive)
-            .map_err(|e| format!("开始监听失败: {}", e))?;
+        // 为每个路径开始监听
+        for path_str in paths {
+            let path = PathBuf::from(path_str);
+            watcher
+                .watch(&path, RecursiveMode::Recursive)
+                .map_err(|e| format!("开始监听失败 {}: {}", path.display(), e))?;
+            println!("文件监听器已启动，监控路径: {}", path.display());
+        }
 
         self.watcher = Some(watcher);
 
@@ -118,7 +126,6 @@ impl FileWatcher {
             *guard = true;
         }
 
-        println!("文件监听器已启动，监控路径: {}", path.display());
         Ok(())
     }
 

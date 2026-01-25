@@ -1,8 +1,8 @@
 use axum::{
-    Json,
     extract::State,
     http::StatusCode,
     response::{IntoResponse, Response},
+    Json,
 };
 use std::sync::Arc;
 
@@ -28,7 +28,9 @@ pub async fn start_watcher(
         }));
     }
 
-    match watcher.start("public") {
+    let data_source_dirs: Vec<String> = state.data_source_dirs.iter().map(|s| s.clone()).collect();
+
+    match watcher.start(&data_source_dirs) {
         Ok(_) => Ok(Json(WatcherStatus {
             running: true,
             message: "文件监听器已启动".to_string(),

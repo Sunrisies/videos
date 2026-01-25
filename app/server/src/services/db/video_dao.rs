@@ -1,6 +1,7 @@
 use crate::models::{PaginatedVideoList, PaginationInfo, VideoInfo};
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::queries;
+use log::info;
 use rusqlite::{params_from_iter, Result};
 
 /// 视频数据访问对象
@@ -51,12 +52,12 @@ impl<'a> VideoDao<'a> {
         Ok(crate::services::db::tree::TreeBuilder::build_tree(videos))
     }
 
-    /// 获取根目录下的视频（public 目录）
+    /// 获取所有视频（所有数据源目录）
     pub fn get_root_videos(&self) -> Result<Vec<VideoInfo>> {
-        let public_path = std::path::Path::new("public").to_string_lossy().to_string();
-
-        let mut stmt = self.db_manager.conn.prepare(queries::SELECT_BY_PARENT)?;
-        let video_iter = stmt.query_map([&public_path], |row| {
+        // 查询所有视频记录，不限制 parent_path
+        // SELECT_ALL_FULL 返回 13 列：name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, parent_path, width, height
+        let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_FULL)?;
+        let video_iter = stmt.query_map([], |row| {
             Ok(VideoInfo {
                 name: row.get(0)?,
                 path: row.get(1)?,
@@ -70,9 +71,9 @@ impl<'a> VideoDao<'a> {
                 codec: row.get(8)?,
                 created_at: row.get(9)?,
                 subtitle: row.get(10)?,
-                width: row.get(11)?,
-                height: row.get(12)?,
-                id: row.get(13)?,
+                width: row.get(12)?,
+                height: row.get(13)?,
+                id: 0, // SELECT_ALL_FULL 不包含 id，使用默认值 0
             })
         })?;
 
@@ -93,19 +94,17 @@ impl<'a> VideoDao<'a> {
         sort_by: Option<&str>,
         sort_order: Option<&str>,
     ) -> Result<PaginatedVideoList> {
-        let public_path = std::path::Path::new("public").to_string_lossy().to_string();
-
         // 计算偏移量
         let offset = (page - 1) * page_size;
 
-        // 构建查询条件
-        let mut where_clause = String::from("WHERE parent_path = ?");
-        let mut params: Vec<String> = vec![public_path];
+        // 构建查询条件 - 不再限制 parent_path，查询所有数据源目录
+        let mut where_clause = String::new();
+        let mut params: Vec<String> = Vec::new();
 
         // 添加搜索条件
         if let Some(search_term) = search {
             if !search_term.is_empty() {
-                where_clause.push_str(" AND (name LIKE ? OR path LIKE ?)");
+                where_clause.push_str("WHERE (name LIKE ? OR path LIKE ?)");
                 let search_pattern = format!("%{}%", search_term);
                 params.push(search_pattern.clone());
                 params.push(search_pattern);
@@ -148,8 +147,11 @@ impl<'a> VideoDao<'a> {
 
         // 获取总数
         let count_query = format!("SELECT COUNT(*) FROM videos {}", where_clause);
-
+        info!("1213213:{}", count_query);
         let mut count_stmt = self.db_manager.conn.prepare(&count_query)?;
+        info!("总数:{:?}", count_stmt);
+
+        info!("00210021012{:?}", params);
         let total: u64 = match params.len() {
             1 => count_stmt.query_row([params[0].as_str()], |row| row.get(0))?,
             2 => {

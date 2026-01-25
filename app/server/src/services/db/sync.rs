@@ -54,10 +54,10 @@ impl<'a> DirectorySync<'a> {
         Self { db_manager }
     }
 
-    /// 从目录初始化数据库（双向同步）
-    pub fn initialize_from_directory(&self, root_path: &str, force: bool) -> Result<()> {
+    /// 从多个目录初始化数据库（双向同步）
+    pub fn initialize_from_directory(&self, root_paths: &[String], force: bool) -> Result<()> {
         let start_time = Instant::now();
-        info!("开始数据库同步: {}", root_path);
+        info!("开始数据库同步: {}", root_paths.join(", "));
 
         // 检查数据库是否已初始化
         let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_COUNT)?;
@@ -65,7 +65,7 @@ impl<'a> DirectorySync<'a> {
 
         if count > 0 && !force {
             info!("数据库已包含 {} 条记录，执行增量同步", count);
-            self.bidirectional_sync(root_path)?;
+            self.bidirectional_sync(root_paths)?;
             info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
             return Ok(());
         }
@@ -76,7 +76,7 @@ impl<'a> DirectorySync<'a> {
         }
 
         // 执行完整的双向同步
-        self.bidirectional_sync(root_path)?;
+        self.bidirectional_sync(root_paths)?;
 
         info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
         Ok(())
@@ -84,11 +84,12 @@ impl<'a> DirectorySync<'a> {
 
     /// 兼容旧接口：扫描目录并更新数据库
     pub fn sync_directory(&self, root_path: &str) -> Result<()> {
-        self.bidirectional_sync(root_path)
+        let paths = vec![root_path.to_string()];
+        self.bidirectional_sync(&paths)
     }
 
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
-    fn bidirectional_sync(&self, root_path: &str) -> Result<()> {
+    fn bidirectional_sync(&self, root_paths: &[String]) -> Result<()> {
         let start_time = Instant::now();
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -100,12 +101,20 @@ impl<'a> DirectorySync<'a> {
         let db_records = self.get_all_db_records()?;
         info!("数据库中记录数: {}", db_records.len());
 
-        // 2. 并行扫描文件系统
-        let (fs_files, scan_errors) = self.scan_filesystem_parallel(root_path);
-        debug!("文件系统扫描到文件数: {}", fs_files.len());
+        // 2. 并行扫描所有文件系统目录
+        let mut all_fs_files = HashMap::new();
+        let mut all_scan_errors = Vec::new();
+
+        for root_path in root_paths {
+            let (fs_files, scan_errors) = self.scan_filesystem_parallel(root_path);
+            all_fs_files.extend(fs_files);
+            all_scan_errors.extend(scan_errors);
+        }
+
+        debug!("文件系统扫描到文件数: {}", all_fs_files.len());
 
         // 记录扫描错误
-        for error in &scan_errors {
+        for error in &all_scan_errors {
             warn!("扫描错误: {}", error);
         }
 
@@ -114,7 +123,7 @@ impl<'a> DirectorySync<'a> {
         let mut changed_count = 0;
         let mut skipped_count = 0;
         // 开始时间
-        for (path, file_info) in &fs_files {
+        for (path, file_info) in &all_fs_files {
             match db_records.get(path) {
                 None => {
                     self.insert_new_record(file_info, &current_time)?;
@@ -139,7 +148,7 @@ impl<'a> DirectorySync<'a> {
         // 4. 处理删除的文件
         let mut deleted_count = 0;
         for (path, db_record) in &db_records {
-            if !fs_files.contains_key(path) {
+            if !all_fs_files.contains_key(path) {
                 self.hard_delete_record(path)?;
                 deleted_count += 1;
                 debug!("删除: {}", db_record.name);
@@ -156,8 +165,8 @@ impl<'a> DirectorySync<'a> {
             debug!("无变化，跳过 {} 个文件", skipped_count);
         }
 
-        if !scan_errors.is_empty() {
-            warn!("扫描过程中有 {} 个错误", scan_errors.len());
+        if !all_scan_errors.is_empty() {
+            warn!("扫描过程中有 {} 个错误", all_scan_errors.len());
         }
 
         Ok(())
@@ -304,7 +313,7 @@ impl<'a> DirectorySync<'a> {
 
         // 获取缩略图路径
         let thumb_path = Self::get_thumbnail_path(path);
-
+        info!("---------{:?}", thumb_path);
         // 使用统一的 FFmpeg 服务获取视频信息
         let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
             let ffmpeg = get_ffmpeg_service();
@@ -363,11 +372,22 @@ impl<'a> DirectorySync<'a> {
     /// 获取缩略图路径
     fn get_thumbnail_path(file_path: &Path) -> PathBuf {
         let thumbnails_dir = Path::new("thumbnails");
-        let public_path = Path::new("public");
 
-        let relative_path = file_path.strip_prefix(public_path).unwrap_or(file_path);
+        // 方法1: 找到 "public" 在路径中的位置，取后面的部分
+        let relative_path: PathBuf = file_path
+            .components() // 分解路径组件
+            .skip_while(|c| c.as_os_str() != "public") // 跳过直到 "public"
+            .skip(1) // 跳过 "public" 本身
+            .collect(); // 收集剩余部分
 
-        thumbnails_dir.join(relative_path).with_extension("jpg")
+        // 如果 relative_path 为空（没找到 public），使用文件名
+        let final_path = if relative_path.as_os_str().is_empty() {
+            file_path.file_name().map(Path::new).unwrap_or(file_path)
+        } else {
+            &relative_path
+        };
+
+        thumbnails_dir.join(final_path).with_extension("jpg")
     }
 
     /// 确保缩略图存在（静态方法）

@@ -59,29 +59,34 @@ pub fn is_video_or_container(path: &Path) -> bool {
     }
     false
 }
-/// 获取当前目录下面的文件数据
-pub fn get_files(root_path: &Path) -> Vec<(String, String, String, PathBuf)> {
+/// 获取多个目录下面的文件数据
+pub fn get_files(root_paths: &[String]) -> Vec<(String, String, String, PathBuf)> {
     let mut files: Vec<(String, String, String, PathBuf)> = Vec::new();
-    for entry in WalkDir::new(root_path)
-        .max_depth(1)
-        .into_iter()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        // 过滤掉当前的目录
-        if root_path == path {
-            continue;
-        }
-        if is_video_or_container(path) {
-            // 获取不带扩展名的文件名
-            let name_without_ext = path
-                .file_stem()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-            let size = format_size(path.metadata().unwrap().len());
-            let created_at = get_created_at(path).unwrap_or_default();
-            files.push((name_without_ext, size, created_at, path.to_path_buf()));
+
+    for root_path_str in root_paths {
+        let root_path = Path::new(root_path_str);
+
+        for entry in WalkDir::new(root_path)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            // 过滤掉当前的目录
+            if root_path == path {
+                continue;
+            }
+            if is_video_or_container(path) {
+                // 获取不带扩展名的文件名
+                let name_without_ext = path
+                    .file_stem()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("")
+                    .to_string();
+                let size = format_size(path.metadata().unwrap().len());
+                let created_at = get_created_at(path).unwrap_or_default();
+                files.push((name_without_ext, size, created_at, path.to_path_buf()));
+            }
         }
     }
     files
@@ -93,8 +98,8 @@ pub fn get_files_without_thumbnails(
     thumbnails_path: &Path,
 ) -> Vec<(String, PathBuf)> {
     // 获取源目录和缩略图目录的所有文件
-    let source_files = get_files(source_dir);
-    let thumbnail_files = get_files(thumbnails_path);
+    let source_files = get_files(&[source_dir.to_string_lossy().to_string()]);
+    let thumbnail_files = get_files(&[thumbnails_path.to_string_lossy().to_string()]);
 
     // 创建缩略图文件名的集合，便于快速查找
     let thumbnail_names: HashSet<String> = thumbnail_files

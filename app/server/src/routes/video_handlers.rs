@@ -81,7 +81,10 @@ pub async fn sync_videos(
     let start = std::time::Instant::now();
     let db_manager = state.db_manager.lock().unwrap();
     let sync = DirectorySync::new(&db_manager);
-    match sync.sync_directory("public") {
+
+    let data_source_dirs: Vec<String> = state.data_source_dirs.iter().map(|s| s.clone()).collect();
+
+    match sync.initialize_from_directory(&data_source_dirs, false) {
         Ok(_) => {
             // Get updated count
             let video_dao = VideoDao::new(&db_manager);
