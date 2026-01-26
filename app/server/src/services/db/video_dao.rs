@@ -1,7 +1,6 @@
 use crate::models::{PaginatedVideoList, PaginationInfo, VideoInfo};
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::queries;
-use log::info;
 use rusqlite::{params_from_iter, Result};
 
 /// 视频数据访问对象

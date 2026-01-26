@@ -154,13 +154,12 @@ export default function VideoPlayPage() {
 
     try {
       const response = await fetch(
-        `http://192.168.10.19:3003/api/videos/delete?id=${video.id}`,
+        `${process.env.NEXT_PUBLIC_APP_IP}:3003/api/videos/delete?id=${video.id}`,
         {
           method: 'DELETE',
           headers: {
             'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
             'Accept': '*/*',
-            'Host': '192.168.10.19:3003',
             'Connection': 'keep-alive',
           },
         }

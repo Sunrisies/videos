@@ -44,7 +44,7 @@ interface PaginatedResponse {
 
 
 const fetchVideosFromApi = async (page: number = 1, pageSize: number = 20): Promise<{ videos: MediaItem[], total: number, totalPages: number }> => {
-  const response = await fetch(`http://192.168.10.19:3003/api/videos/paginated?page_size=${pageSize}&page=${page}`)
+  const response = await fetch(`${process.env.NEXT_PUBLIC_APP_IP}:3003/api/videos/paginated?page_size=${pageSize}&page=${page}`)
   if (!response.ok) {
     throw new Error("Failed to fetch videos")
   }
