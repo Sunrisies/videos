@@ -13,7 +13,7 @@ use crate::services::ffmpeg::get_ffmpeg_service;
 use crate::utils::get_files_without_thumbnails;
 
 /// 使用自定义数据源目录初始化缩略图目录
-pub fn initialize_thumbnails_with_source(source_dir: &str) {
+pub fn initialize_thumbnails_with_source(source_dirs: &[String]) {
     let start = Instant::now();
     let thumbnails_path = StdPath::new("thumbnails");
 
@@ -23,49 +23,67 @@ pub fn initialize_thumbnails_with_source(source_dir: &str) {
         info!("已创建缩略图目录");
     }
 
-    let source_path = StdPath::new(source_dir);
-    let files_without_thumbnails = get_files_without_thumbnails(source_path, thumbnails_path);
+    let mut total_files_without_thumbnails = 0;
 
-    if files_without_thumbnails.is_empty() {
-        debug!("所有文件都已有缩略图");
-        return;
+    for source_dir in source_dirs {
+        let source_path = StdPath::new(source_dir);
+        let files_without_thumbnails = get_files_without_thumbnails(source_path, thumbnails_path);
+
+        if files_without_thumbnails.is_empty() {
+            debug!("目录 {} 的所有文件都已有缩略图", source_dir);
+            continue;
+        }
+
+        total_files_without_thumbnails += files_without_thumbnails.len();
+
+        info!(
+            "目录 {} 需要生成缩略图的文件数量: {}",
+            source_dir,
+            files_without_thumbnails.len()
+        );
+
+        // 使用新的 FFmpeg 服务并行生成缩略图
+        let ffmpeg = get_ffmpeg_service();
+
+        files_without_thumbnails
+            .par_iter()
+            .for_each(|(name, file)| {
+                let thumbnail_filename = format!("{}.jpg", name);
+                let thumbnail_path = thumbnails_path.join(&thumbnail_filename);
+
+                // 确保缩略图目录存在
+                if let Some(parent) = thumbnail_path.parent() {
+                    if !parent.exists() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+                }
+
+                // 使用 FFmpeg 服务生成缩略图
+                let extension = file
+                    .extension()
+                    .and_then(|e| e.to_str())
+                    .unwrap_or("")
+                    .to_lowercase();
+
+                if extension == "mp4"
+                    || extension == "avi"
+                    || extension == "mkv"
+                    || extension == "mov"
+                {
+                    ffmpeg.generate_thumbnail(file, &thumbnail_path);
+                } else {
+                    ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media");
+                }
+            });
     }
 
-    info!(
-        "需要生成缩略图的文件数量: {}",
-        files_without_thumbnails.len()
-    );
-
-    // 使用新的 FFmpeg 服务并行生成缩略图
-    let ffmpeg = get_ffmpeg_service();
-
-    files_without_thumbnails
-        .par_iter()
-        .for_each(|(name, file)| {
-            let thumbnail_filename = format!("{}.jpg", name);
-            let thumbnail_path = thumbnails_path.join(&thumbnail_filename);
-
-            // 确保缩略图目录存在
-            if let Some(parent) = thumbnail_path.parent() {
-                if !parent.exists() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-            }
-
-            // 使用 FFmpeg 服务生成缩略图
-            let extension = file
-                .extension()
-                .and_then(|e| e.to_str())
-                .unwrap_or("")
-                .to_lowercase();
-
-            if extension == "mp4" || extension == "avi" || extension == "mkv" || extension == "mov"
-            {
-                ffmpeg.generate_thumbnail(file, &thumbnail_path);
-            } else {
-                ffmpeg.generate_placeholder_thumbnail(&thumbnail_path, "media");
-            }
-        });
-
-    info!("缩略图初始化完成，耗时: {:?}", start.elapsed());
+    if total_files_without_thumbnails > 0 {
+        info!(
+            "缩略图初始化完成，总共生成 {} 个缩略图，耗时: {:?}",
+            total_files_without_thumbnails,
+            start.elapsed()
+        );
+    } else {
+        info!("所有文件都已有缩略图，耗时: {:?}", start.elapsed());
+    }
 }

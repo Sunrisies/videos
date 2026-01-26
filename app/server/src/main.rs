@@ -22,6 +22,7 @@ use crate::{
 pub struct AppState {
     pub db_manager: Arc<Mutex<VideoDbManager>>,
     pub file_watcher: Arc<Mutex<FileWatcher>>,
+    pub data_source_dirs: Arc<Vec<String>>,
 }
 
 #[tokio::main]
@@ -30,20 +31,31 @@ async fn main() {
 
     // 初始化后台任务队列（最大4个并发任务）
     init_task_queue(4);
+    // G:/videos/app/server/public;
+    // 从环境变量获取数据源目录，支持多个目录（用分号分隔）
+    let data_source_dirs_str =
+        std::env::var("DATA_SOURCE_DIRS").unwrap_or_else(|_| "F:/public".to_string());
+    let data_source_dirs: Vec<String> = data_source_dirs_str
+        .split(';')
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
 
-    // 从环境变量获取数据源目录，如果未设置则默认为"public"
-    let data_source_dir = std::env::var("DATA_SOURCE_DIR").unwrap_or_else(|_| "public".to_string());
-    println!("使用数据源目录: {}", data_source_dir);
+    if data_source_dirs.is_empty() {
+        panic!("至少需要配置一个数据源目录");
+    }
+
+    println!("使用数据源目录: {}", data_source_dirs.join(", "));
 
     // 初始化缩略图目录
-    services::initialize_thumbnails_with_source(&data_source_dir);
+    services::initialize_thumbnails_with_source(&data_source_dirs);
 
     // 初始化数据库
     let db_manager = VideoDbManager::new("videos.db").expect("Failed to initialize database");
 
     // 从指定目录中初始化数据库
     let sync = services::DirectorySync::new(&db_manager);
-    if let Err(e) = sync.initialize_from_directory(&data_source_dir, false) {
+    if let Err(e) = sync.initialize_from_directory(&data_source_dirs, false) {
         println!("警告：无法从数据源目录初始化数据库: {}", e);
     } else {
         println!("数据库初始化成功");
@@ -60,6 +72,7 @@ async fn main() {
     let app_state = Arc::new(AppState {
         db_manager: db_manager_arc,
         file_watcher: file_watcher_arc,
+        data_source_dirs: Arc::new(data_source_dirs.clone()),
     });
 
     // 创建 CORS 中间件 - 允许所有来源
@@ -74,7 +87,7 @@ async fn main() {
         .allow_headers(vec![HeaderName::from_static("*")]);
 
     // 创建路由，添加静态文件服务和 CORS
-    let app = Router::new()
+    let mut app = Router::new()
         .route("/", get(|| async { "Hello, World!" }))
         // 列出所有视频文件和目录
         .route("/api/videos", get(routes::list_videos))
@@ -90,12 +103,17 @@ async fn main() {
         .route("/api/watcher/status", get(routes::get_watcher_status))
         // 任务队列状态端点
         .route("/api/tasks/status", get(routes::get_task_queue_status))
-        // 静态文件服务，数据源目录下的文件可以通过 /public/... 访问
-        .nest_service("/public", ServeDir::new(&data_source_dir))
         // 静态文件服务，thumbnails 目录下的文件可以通过 /thumbnails/... 访问
         .nest_service("/thumbnails", ServeDir::new("thumbnails"))
         .with_state(app_state)
         .layer(cors);
+
+    // 为每个数据源目录创建静态文件服务路由
+    for (index, dir) in data_source_dirs.iter().enumerate() {
+        let route_path = format!("/public/disk{}", index + 1);
+        app = app.nest_service(&route_path, ServeDir::new(dir));
+        info!("静态文件服务: {} -> {}", route_path, dir);
+    }
 
     let addr = SocketAddr::from(([0, 0, 0, 0], 3003));
     info!("listening on {}", addr);
