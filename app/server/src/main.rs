@@ -115,8 +115,8 @@ async fn main() {
         // 任务队列状态端点
         .route("/api/tasks/status", get(routes::get_task_queue_status))
         // 静态文件服务，thumbnails 目录下的文件可以通过 /thumbnails/... 访问
-        .nest_service("/thumbnails", ServeDir::new("thumbnails"))
-        .layer(cors);
+        .nest_service("/thumbnails", ServeDir::new("thumbnails"));
+    // .layer(&cors);
 
     let state_clone = app_state.clone();
     for mapping in state_clone.data_source_dirs.iter() {
@@ -127,7 +127,7 @@ async fn main() {
         );
     }
 
-    let app = app.with_state(app_state);
+    let app = app.with_state(app_state).layer(cors);
     let addr = SocketAddr::from(([0, 0, 0, 0], 3003));
     info!("listening on {}", addr);
     info!("CORS enabled - allowing all origins");

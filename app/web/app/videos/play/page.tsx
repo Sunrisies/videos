@@ -27,47 +27,47 @@ function VideoInfoCard({ video }: { video: MediaItem }) {
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
       <div className="p-4 space-y-3">
-        {/* 标签和元数据 */}
+        {/* 标签和元数据 */ }
         <div className="flex flex-wrap items-center gap-2">
-          {video.width && video.height && (
+          { video.width && video.height && (
             <span className="px-2.5 py-1 bg-primary/10 text-primary text-xs font-medium rounded-full">
-              {video.width}x{video.height}
+              { video.width }x{ video.height }
             </span>
-          )}
-          {video.type && (
+          ) }
+          { video.type && (
             <span className="px-2.5 py-1 bg-secondary text-secondary-foreground text-xs font-medium rounded-full uppercase">
-              {video.type}
+              { video.type }
             </span>
-          )}
-          {video.size && (
+          ) }
+          { video.size && (
             <span className="px-2.5 py-1 bg-muted text-muted-foreground text-xs font-medium rounded-full">
-              {video.size}
+              { video.size }
             </span>
-          )}
+          ) }
         </div>
 
-        {/* 详细信息 */}
+        {/* 详细信息 */ }
         <div className="flex flex-col gap-2 text-sm">
-          {video.duration && (
+          { video.duration && (
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-muted-foreground" />
               <span className="text-muted-foreground">时长:</span>
-              <span className="font-medium">{video.duration}</span>
+              <span className="font-medium">{ video.duration }</span>
             </div>
-          )}
-          {video.createdAt && (
+          ) }
+          { video.createdAt && (
             <div className="flex items-center gap-2">
               <span className="text-muted-foreground">上传时间:</span>
-              <span className="font-medium truncate">{video.createdAt}</span>
+              <span className="font-medium truncate">{ video.createdAt }</span>
             </div>
-          )}
+          ) }
         </div>
 
-        {/* 文件信息 */}
+        {/* 文件信息 */ }
         <div className="pt-3 border-t border-border/50">
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
             <FileVideo className="w-3.5 h-3.5" />
-            <span className="font-mono truncate">{video.path.split('\\').pop() || video.name}</span>
+            <span className="font-mono truncate">{ video.path.split('\\').pop() || video.name }</span>
           </div>
         </div>
       </div>
@@ -154,13 +154,13 @@ export default function VideoPlayPage() {
 
     try {
       const response = await fetch(
-        `http://192.168.31.236:3003/api/videos/delete?id=${video.id}`,
+        `http://192.168.10.19:3003/api/videos/delete?id=${video.id}`,
         {
           method: 'DELETE',
           headers: {
             'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
             'Accept': '*/*',
-            'Host': '192.168.31.236:3003',
+            'Host': '192.168.10.19:3003',
             'Connection': 'keep-alive',
           },
         }
@@ -208,22 +208,22 @@ export default function VideoPlayPage() {
 
   return (
     <div className="bg-background">
-      {/* 顶部导航栏 - 优化为毛玻璃效果 */}
+      {/* 顶部导航栏 - 优化为毛玻璃效果 */ }
       <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border/50">
         <div className="container mx-auto px-4 py-3 flex items-center justify-between safe-area-top">
           <Button
             size="icon"
             variant="ghost"
-            onClick={handleBack}
+            onClick={ handleBack }
             className="h-10 w-10 hover:bg-accent transition-colors"
           >
             <ChevronLeft className="w-6 h-6" />
           </Button>
 
-          {/* 标题 - 支持滚动和截断 */}
+          {/* 标题 - 支持滚动和截断 */ }
           <div className="flex-1 mx-3 overflow-hidden">
             <h1 className="text-base font-semibold text-foreground truncate text-center">
-              {video.name}
+              { video.name }
             </h1>
           </div>
 
@@ -231,7 +231,7 @@ export default function VideoPlayPage() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={handleShare}
+              onClick={ handleShare }
               className="h-10 w-10 hover:bg-accent transition-colors"
             >
               <Share2 className="w-5 h-5" />
@@ -239,8 +239,8 @@ export default function VideoPlayPage() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setShowDeleteDialog(true)}
-              disabled={isDeleting}
+              onClick={ () => setShowDeleteDialog(true) }
+              disabled={ isDeleting }
               className="h-10 w-10 hover:bg-destructive/20 text-destructive transition-colors"
             >
               <Trash2 className="w-5 h-5" />
@@ -249,19 +249,19 @@ export default function VideoPlayPage() {
         </div>
       </header>
 
-      {/* 主要内容区域 */}
+      {/* 主要内容区域 */ }
       <div className="pt-[60px]">
-        {/* 根据视频方向选择不同布局 */}
-        {isVerticalVideo(video.width, video.height) ? (
+        {/* 根据视频方向选择不同布局 */ }
+        { isVerticalVideo(video.width, video.height) ? (
           // 竖屏视频布局：只显示视频，不显示详情
           <div className="container mx-auto p-2">
             <div className="flex justify-center">
-              {/* 竖屏视频播放器 */}
+              {/* 竖屏视频播放器 */ }
               <div
                 className="relative rounded-xl overflow-hidden shadow-lg border border-border/50 bg-black"
-                style={{ maxWidth: '400px' }}
+                style={ { maxWidth: '400px' } }
               >
-                <MobileVideoPlayer media={video} autoPlay />
+                <MobileVideoPlayer media={ video } autoPlay />
               </div>
             </div>
           </div>
@@ -269,41 +269,41 @@ export default function VideoPlayPage() {
           // 横屏视频布局：标准堆叠布局
           <div className="container mx-auto px-4 py-4">
             <div className="relative rounded-xl overflow-hidden shadow-lg border border-border/50">
-              <MobileVideoPlayer media={video} autoPlay />
+              <MobileVideoPlayer media={ video } autoPlay />
             </div>
             <div className="mt-4">
-              <VideoInfoCard video={video} />
+              <VideoInfoCard video={ video } />
             </div>
           </div>
-        )}
+        ) }
       </div>
 
-      {/* 底部安全区域 */}
+      {/* 底部安全区域 */ }
       <div className="fixed bottom-0 left-0 right-0 h-[env(safe-area-inset-bottom)] bg-background" />
 
-      {/* 删除确认对话框 */}
-      <Dialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+      {/* 删除确认对话框 */ }
+      <Dialog open={ showDeleteDialog } onOpenChange={ setShowDeleteDialog }>
         <DialogContent>
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
             <DialogDescription>
-              确定要删除视频 "{video.name}" 吗？此操作无法撤销。
+              确定要删除视频 "{ video.name }" 吗？此操作无法撤销。
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
             <Button
               variant="outline"
-              onClick={() => setShowDeleteDialog(false)}
-              disabled={isDeleting}
+              onClick={ () => setShowDeleteDialog(false) }
+              disabled={ isDeleting }
             >
               取消
             </Button>
             <Button
               variant="destructive"
-              onClick={handleDelete}
-              disabled={isDeleting}
+              onClick={ handleDelete }
+              disabled={ isDeleting }
             >
-              {isDeleting ? "删除中..." : "删除"}
+              { isDeleting ? "删除中..." : "删除" }
             </Button>
           </DialogFooter>
         </DialogContent>

@@ -149,11 +149,7 @@ impl<'a> VideoDao<'a> {
 
         // 获取总数
         let count_query = format!("SELECT COUNT(*) FROM videos {}", where_clause);
-        info!("1213213:{}", count_query);
         let mut count_stmt = self.db_manager.conn.prepare(&count_query)?;
-        info!("总数:{:?}", count_stmt);
-
-        info!("00210021012{:?}", params);
         let total: u64 = match params.len() {
             0 => count_stmt.query_row([], |row| row.get(0))?,
             1 => count_stmt.query_row([params[0].as_str()], |row| row.get(0))?,
