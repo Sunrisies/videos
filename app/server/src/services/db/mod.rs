@@ -7,9 +7,7 @@ pub mod schema;
 pub mod sync;
 pub mod tree;
 pub mod video_dao;
-pub mod watcher;
 
 pub use connection::VideoDbManager;
 pub use sync::DirectorySync;
 pub use video_dao::VideoDao;
-pub use watcher::FileWatcher;

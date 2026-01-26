@@ -3,6 +3,6 @@ pub mod ffmpeg;
 pub mod filesystem;
 pub mod task_queue;
 
-pub use db::{DirectorySync, FileWatcher, VideoDao, VideoDbManager};
+pub use db::{DirectorySync, VideoDao, VideoDbManager};
 pub use filesystem::initialize_thumbnails_with_source;
 pub use task_queue::{get_task_queue, init_task_queue};

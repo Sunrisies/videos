@@ -40,6 +40,7 @@ impl<'a> VideoDao<'a> {
                 width: row.get(12)?,
                 height: row.get(13)?,
                 id: row.get(14)?,
+                parent_path: row.get(11)?,
             })
         })?;
 
@@ -74,6 +75,7 @@ impl<'a> VideoDao<'a> {
                 width: row.get(12)?,
                 height: row.get(13)?,
                 id: 0, // SELECT_ALL_FULL 不包含 id，使用默认值 0
+                parent_path: row.get(11)?,
             })
         })?;
 
@@ -137,7 +139,7 @@ impl<'a> VideoDao<'a> {
 
         // 构建完整的查询语句
         let query = format!(
-            "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, width, height,id
+            "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, width, height,id,parent_path
              FROM videos
              {}
              {}
@@ -153,6 +155,7 @@ impl<'a> VideoDao<'a> {
 
         info!("00210021012{:?}", params);
         let total: u64 = match params.len() {
+            0 => count_stmt.query_row([], |row| row.get(0))?,
             1 => count_stmt.query_row([params[0].as_str()], |row| row.get(0))?,
             2 => {
                 count_stmt.query_row([params[0].as_str(), params[1].as_str()], |row| row.get(0))?
@@ -195,6 +198,7 @@ impl<'a> VideoDao<'a> {
                     width: row.get(11)?,
                     height: row.get(12)?,
                     id: row.get(13)?,
+                    parent_path: row.get(14)?,
                 })
             })?
             .collect::<Result<Vec<_>, _>>()?;
@@ -226,28 +230,11 @@ impl<'a> VideoDao<'a> {
         Ok(affected_rows)
     }
 
-    /// 从数据库中删除视频记录（通过路径）
-    /// 返回删除的记录数量
-    pub fn delete_from_database(&self, video_path: &str) -> Result<usize> {
-        let stmt = "DELETE FROM videos WHERE path = ?1";
-        let mut delete_stmt = self.db_manager.conn.prepare(stmt)?;
-        let affected_rows = delete_stmt.execute([video_path])?;
-        Ok(affected_rows)
-    }
-
     /// 检查视频记录是否存在（通过ID）
     pub fn video_exists_by_id(&self, video_id: i64) -> Result<bool> {
         let stmt = "SELECT COUNT(*) FROM videos WHERE id = ?1";
         let mut check_stmt = self.db_manager.conn.prepare(stmt)?;
         let count: u32 = check_stmt.query_row([video_id], |row| row.get(0))?;
-        Ok(count > 0)
-    }
-
-    /// 检查视频记录是否存在（通过路径）
-    pub fn video_exists(&self, video_path: &str) -> Result<bool> {
-        let stmt = "SELECT COUNT(*) FROM videos WHERE path = ?1";
-        let mut check_stmt = self.db_manager.conn.prepare(stmt)?;
-        let count: u32 = check_stmt.query_row([video_path], |row| row.get(0))?;
         Ok(count > 0)
     }
 

@@ -82,7 +82,7 @@ pub async fn sync_videos(
     let db_manager = state.db_manager.lock().unwrap();
     let sync = DirectorySync::new(&db_manager);
 
-    let data_source_dirs: Vec<String> = state.data_source_dirs.iter().map(|s| s.clone()).collect();
+    let data_source_dirs = Arc::clone(&state.data_source_dirs);
 
     match sync.initialize_from_directory(&data_source_dirs, false) {
         Ok(_) => {

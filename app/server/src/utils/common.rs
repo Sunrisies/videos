@@ -121,8 +121,6 @@ pub struct VideoInfo {
     pub duration: String, // 秒
     pub width: u16,
     pub height: u16,
-    pub codec: String,
-    pub frame_rate: Option<f64>,
 }
 
 pub fn get_video_info(file_path: &str) -> Result<VideoInfo, Box<dyn std::error::Error>> {
@@ -143,8 +141,6 @@ pub fn get_video_info(file_path: &str) -> Result<VideoInfo, Box<dyn std::error::
         duration,
         width: 0,
         height: 0,
-        codec: String::new(),
-        frame_rate: None,
     };
 
     for track in mp4.tracks().values() {

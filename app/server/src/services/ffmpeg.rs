@@ -208,59 +208,6 @@ impl FFmpegService {
         }
     }
 
-    /// 仅获取视频时长
-    pub fn get_duration(&self, video_path: &Path) -> Option<String> {
-        let input = video_path.to_string_lossy().to_string();
-
-        let output = Command::new("ffprobe")
-            .args([
-                "-v",
-                "error",
-                "-show_entries",
-                "format=duration",
-                "-of",
-                "default=noprint_wrappers=1:nokey=1",
-                &input,
-            ])
-            .output()
-            .ok()?;
-
-        let duration_str = String::from_utf8_lossy(&output.stdout);
-        let duration_secs: f64 = duration_str.trim().parse().ok()?;
-        Some(Self::format_duration(duration_secs))
-    }
-
-    /// 仅获取视频分辨率
-    pub fn get_dimensions(&self, video_path: &Path) -> Option<(i32, i32)> {
-        let input = video_path.to_string_lossy().to_string();
-
-        let output = Command::new("ffprobe")
-            .args([
-                "-v",
-                "error",
-                "-select_streams",
-                "v:0",
-                "-show_entries",
-                "stream=width,height",
-                "-of",
-                "csv=s=x:p=0",
-                &input,
-            ])
-            .output()
-            .ok()?;
-
-        let dimensions_str = String::from_utf8_lossy(&output.stdout);
-        let parts: Vec<&str> = dimensions_str.trim().split('x').collect();
-
-        if parts.len() == 2 {
-            let width: i32 = parts[0].parse().ok()?;
-            let height: i32 = parts[1].parse().ok()?;
-            Some((width, height))
-        } else {
-            None
-        }
-    }
-
     /// 格式化时长为 HH:MM:SS
     fn format_duration(seconds: f64) -> String {
         let total_seconds = seconds as u64;

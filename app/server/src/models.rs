@@ -28,6 +28,8 @@ pub struct VideoInfo {
     pub width: Option<i32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub height: Option<i32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub parent_path: Option<String>,
 }
 
 #[derive(Serialize)]

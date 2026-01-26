@@ -25,9 +25,4 @@ pub mod queries {
     /// 获取所有视频记录的完整信息（不排序）
     pub const SELECT_ALL_FULL: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, parent_path, width, height
         FROM videos";
-    /// 根据父路径获取视频记录，按创建时间倒序排序（最新在前）
-    pub const SELECT_BY_PARENT: &str = "SELECT name, path, type, thumbnail, duration, size, resolution, bitrate, codec, created_at, subtitle, width, height,id
-        FROM videos
-        WHERE parent_path = ?
-        ORDER BY created_at DESC";
 }

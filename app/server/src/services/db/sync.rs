@@ -8,6 +8,7 @@
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::{queries, video_types};
 use crate::services::ffmpeg::get_ffmpeg_service;
+use crate::DiskMapping;
 use std::time::Instant;
 
 use crate::utils::{format_size, get_systemtime_created, get_video_info, is_video_or_container};
@@ -55,9 +56,13 @@ impl<'a> DirectorySync<'a> {
     }
 
     /// 从多个目录初始化数据库（双向同步）
-    pub fn initialize_from_directory(&self, root_paths: &[String], force: bool) -> Result<()> {
+    pub fn initialize_from_directory(
+        &self,
+        mappings: &Vec<DiskMapping>,
+        force: bool,
+    ) -> Result<()> {
+        // for mapping in mappings {
         let start_time = Instant::now();
-        info!("开始数据库同步: {}", root_paths.join(", "));
 
         // 检查数据库是否已初始化
         let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_COUNT)?;
@@ -65,7 +70,7 @@ impl<'a> DirectorySync<'a> {
 
         if count > 0 && !force {
             info!("数据库已包含 {} 条记录，执行增量同步", count);
-            self.bidirectional_sync(root_paths)?;
+            self.bidirectional_sync(mappings)?;
             info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
             return Ok(());
         }
@@ -76,20 +81,16 @@ impl<'a> DirectorySync<'a> {
         }
 
         // 执行完整的双向同步
-        self.bidirectional_sync(root_paths)?;
+        self.bidirectional_sync(mappings)?;
 
         info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
+        // }
+
         Ok(())
     }
 
-    /// 兼容旧接口：扫描目录并更新数据库
-    pub fn sync_directory(&self, root_path: &str) -> Result<()> {
-        let paths = vec![root_path.to_string()];
-        self.bidirectional_sync(&paths)
-    }
-
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
-    fn bidirectional_sync(&self, root_paths: &[String]) -> Result<()> {
+    fn bidirectional_sync(&self, mappings: &Vec<DiskMapping>) -> Result<()> {
         let start_time = Instant::now();
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -105,8 +106,12 @@ impl<'a> DirectorySync<'a> {
         let mut all_fs_files = HashMap::new();
         let mut all_scan_errors = Vec::new();
 
-        for root_path in root_paths {
-            let (fs_files, scan_errors) = self.scan_filesystem_parallel(root_path);
+        for mapping in mappings {
+            let physical_path = Path::new(&mapping.physical_path);
+            let route_path = &mapping.route_path;
+            info!("开始数据库同步: {}", physical_path.display());
+            let (fs_files, scan_errors) =
+                self.scan_filesystem_parallel(&mapping.physical_path, route_path);
             all_fs_files.extend(fs_files);
             all_scan_errors.extend(scan_errors);
         }
@@ -202,6 +207,7 @@ impl<'a> DirectorySync<'a> {
     fn scan_filesystem_parallel(
         &self,
         root_path: &str,
+        route_path: &str,
     ) -> (HashMap<String, FileInfo>, Vec<String>) {
         let root = PathBuf::from(root_path);
 
@@ -247,7 +253,7 @@ impl<'a> DirectorySync<'a> {
         let root_ref = &root;
 
         pending_entries.par_iter().for_each(|entry| {
-            let result = Self::process_file_static(&entry.path, root_ref);
+            let result = Self::process_file_static(&entry.path, root_ref, route_path);
             match result {
                 Ok(Some(file_info)) => {
                     let mut files_guard = files.lock().unwrap();
@@ -273,6 +279,7 @@ impl<'a> DirectorySync<'a> {
     fn process_file_static(
         path: &Path,
         _root: &Path,
+        route_path: &str,
     ) -> std::result::Result<Option<FileInfo>, String> {
         if !path.is_file() {
             return Ok(None);
@@ -292,11 +299,6 @@ impl<'a> DirectorySync<'a> {
             _ => video_types::UNKNOWN,
         };
 
-        let parent_path = path
-            .parent()
-            .map(|p| p.to_string_lossy().to_string())
-            .unwrap_or_default();
-
         let name = path
             .file_name()
             .and_then(|n| n.to_str())
@@ -313,7 +315,6 @@ impl<'a> DirectorySync<'a> {
 
         // 获取缩略图路径
         let thumb_path = Self::get_thumbnail_path(path);
-        info!("---------{:?}", thumb_path);
         // 使用统一的 FFmpeg 服务获取视频信息
         let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
             let ffmpeg = get_ffmpeg_service();
@@ -359,7 +360,7 @@ impl<'a> DirectorySync<'a> {
             path: path.to_string_lossy().to_string(),
             created_at,
             file_type: file_type.to_string(),
-            parent_path,
+            parent_path: route_path.to_string(),
             thumbnail,
             size,
             subtitle,
