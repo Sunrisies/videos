@@ -88,7 +88,7 @@ export default function VideoPlayPage() {
   // 路由守卫：检查授权状态
   useEffect(() => {
     if (!authLoading && !isAuthenticated) {
-      requireAuth("/videos/play")
+      requireAuth("/play")
     }
   }, [authLoading, isAuthenticated, requireAuth])
 
@@ -110,7 +110,7 @@ export default function VideoPlayPage() {
       setVideo(JSON.parse(storedVideo))
     } else {
       // 如果没有数据，返回列表页
-      router.push("/videos")
+      router.push("/")
     }
   }, [router])
 
@@ -130,7 +130,7 @@ export default function VideoPlayPage() {
     if (pageFromUrl > 1) {
       params.set("page", pageFromUrl.toString())
     }
-    const url = params.toString() ? `/videos?${params.toString()}` : "/videos"
+    const url = params.toString() ? `/?${params.toString()}` : "/"
     // 使用 replace 而不是 push，避免在播放页面历史记录堆积
     router.replace(url)
   }
@@ -181,7 +181,7 @@ export default function VideoPlayPage() {
         if (pageFromUrl > 1) {
           params.set("page", pageFromUrl.toString())
         }
-        const url = params.toString() ? `/videos?${params.toString()}` : "/videos"
+        const url = params.toString() ? `/?${params.toString()}` : "/"
         sessionStorage.setItem("returningFromPlay", "true")
         router.replace(url)
       } else {
