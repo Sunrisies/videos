@@ -10,6 +10,14 @@ import type { MediaItem } from "@/types/media"
 import { useScrollPosition } from "@/hooks/useScrollPosition"
 import { useAuth } from "@/hooks/useAuth"
 import { useDataCache } from "@/hooks/useDataCache"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 
 // API返回的视频数据接口
 interface ApiVideoItem {
@@ -86,6 +94,10 @@ export default function VideosPage() {
   const [totalPages, setTotalPages] = useState(0)
   const [totalVideos, setTotalVideos] = useState(0)
   const pageSize = 20
+  const [video, setVideo] = useState<MediaItem | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
+
+
   // 使用自定义Hook来保存和恢复滚动位置
   const { saveScrollPosition, restoreScrollPosition } = useScrollPosition({ key: "videosPageScrollPosition" })
 
@@ -221,6 +233,7 @@ export default function VideosPage() {
 
   // 处理分页变化
   const handlePageChange = (newPage: number) => {
+    console.log(newPage, 'newPage')
     if (newPage >= 1 && newPage <= totalPages) {
       // 更新 URL 查询参数
       const params = new URLSearchParams(searchParams.toString())
@@ -252,6 +265,53 @@ export default function VideosPage() {
 
     return pages
   }
+  const handleDelete = async () => {
+    if (!video) return
+
+    // 关闭对话框
+    setShowDeleteDialog(false)
+    setIsDeleting(true)
+
+    try {
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_APP_IP}:3003/api/videos/delete?id=${video.id}`,
+        {
+          method: 'DELETE',
+          headers: {
+            'User-Agent': 'Apifox/1.0.0 (https://apifox.com)',
+            'Accept': '*/*',
+            'Connection': 'keep-alive',
+          },
+        }
+      )
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`)
+      }
+
+      const result = await response.json()
+
+      if (result.success) {
+        const params = new URLSearchParams()
+        // if (pageFromUrl > 1) {
+        //   params.set("page", pageFromUrl.toString())
+        // }
+        // 刷新当前页面数据
+        console.log('刷新页面')
+        refresh()
+        const url = params.toString() ? `/videos?${params.toString()}` : "/videos"
+
+        sessionStorage.setItem("returningFromPlay", "true")
+      } else {
+        throw new Error(result.message || "删除失败")
+      }
+    } catch (error) {
+      console.error('删除失败:', error)
+      alert(`删除失败: ${error instanceof Error ? error.message : '未知错误'}`)
+    } finally {
+      setIsDeleting(false)
+    }
+  }
 
 
 
@@ -266,6 +326,13 @@ export default function VideosPage() {
     // 构建播放页面的 URL，包含当前页码参数
     const playUrl = `/videos/play?page=${currentPage}`
     router.push(playUrl)
+  }
+  // 打开删除确认对话框的状态
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const handleDeleteInfo = (video: MediaItem) => {
+    console.log(video, '1212ohj12gy3fg123f1yu')
+    setShowDeleteDialog(true)
+    setVideo(video)
   }
 
   return (
@@ -384,7 +451,8 @@ export default function VideosPage() {
             </div>
             <div className={ viewMode === "grid" ? "grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" : "space-y-4" }>
               { filteredVideos.map((video, index) => (
-                <VideoListItem key={ index } video={ video } onClick={ () => handleVideoClick(video) } />
+                <VideoListItem key={ index } video={ video } onClick={ () => handleVideoClick(video) } onDelete={ (item) => handleDeleteInfo(item) } />
+
               )) }
             </div>
 
@@ -433,24 +501,64 @@ export default function VideosPage() {
                     max={ totalPages }
                     className="w-20 h-8 text-center"
                     placeholder="页码"
-                    onKeyPress={ (e) => {
-                      if (e.key === 'Enter') {
-                        const page = parseInt(e.currentTarget.value, 10)
-                        if (page >= 1 && page <= totalPages) {
-                          handlePageChange(page)
-                          e.currentTarget.value = ''
-                        }
+                    // 移动端建议使用 inputMode="numeric" 优化键盘类型
+                    inputMode="numeric"
+                  />
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="h-8 px-3"
+                    onClick={ () => {
+                      const input = document.querySelector('input[type="number"]') as HTMLInputElement
+                      const page = parseInt(input?.value || '0', 10)
+                      if (page >= 1 && page <= totalPages) {
+                        handlePageChange(page)
+                        input.value = '' // 可选：清空输入框
+                      }
+                      if (page >= totalPages) {
+                        handlePageChange(totalPages)
+                        input.value = '' // 可选：清空输入框
                       }
                     } }
-                  />
+                  >
+                    前往
+                  </Button>
                   <span className="text-sm text-muted-foreground">/ { totalPages } 页</span>
                 </div>
+
               </>
             ) }
 
           </>
         ) }
       </main>
+      {/* 删除确认对话框 */ }
+      <Dialog open={ showDeleteDialog } onOpenChange={ setShowDeleteDialog }>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>确认删除</DialogTitle>
+            <DialogDescription>
+              确定要删除视频 "{ video?.name }" 吗？此操作无法撤销。
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={ () => setShowDeleteDialog(false) }
+              disabled={ isDeleting }
+            >
+              取消
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={ handleDelete }
+              disabled={ isDeleting }
+            >
+              { isDeleting ? "删除中..." : "删除" }
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

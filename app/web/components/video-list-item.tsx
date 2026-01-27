@@ -1,15 +1,18 @@
 "use client"
 
-import { Play, Clock } from "lucide-react"
+import { Play, Clock, Trash2 } from "lucide-react"
 import { Card } from "@/components/ui/card"
 import type { MediaItem } from "@/types/media"
 import Image from "next/image"
+import { Button } from "./ui/button"
+import { useState } from "react"
 interface VideoListItemProps {
   video: MediaItem
   onClick: () => void
+  onDelete: (video: MediaItem) => void
 }
 
-export function VideoListItem({ video, onClick }: VideoListItemProps) {
+export function VideoListItem({ video, onClick, onDelete }: VideoListItemProps) {
   const formatDuration = (seconds?: number) => {
     if (!seconds) return ""
     const mins = Math.floor(seconds / 60)
@@ -31,10 +34,12 @@ export function VideoListItem({ video, onClick }: VideoListItemProps) {
   return (
     <Card
       className="group overflow-hidden cursor-pointer p-0 transition-all duration-300 ease-out hover:-translate-y-1 hover:shadow-xl active:scale-95"
-      onClick={ onClick }
     >
       {/* 缩略图区域 */ }
-      <div className="relative aspect-video bg-muted overflow-hidden">
+      <div className="relative aspect-video bg-muted overflow-hidden"
+        onClick={ onClick }
+
+      >
         { video.thumbnail ? (
           <div className="relative w-full h-full transition-transform duration-500 group-hover:scale-105">
             <Image
@@ -73,20 +78,36 @@ export function VideoListItem({ video, onClick }: VideoListItemProps) {
       </div>
 
       {/* 信息区域 */ }
-      <div className="p-4 space-y-2">
-        <h3 className="font-semibold text-base line-clamp-2 leading-snug transition-colors duration-200 group-hover:text-primary">
-          { video.name }
-        </h3>
+      <div className="p-4 space-y-2 flex justify-between">
+        <div className="space-y-2">
+          <h3 className="font-semibold text-base line-clamp-2 leading-snug transition-colors duration-200 group-hover:text-primary">
+            { video.name }
+          </h3>
 
-        <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-          { video.resolution && <span className="bg-secondary px-2 py-1 rounded transition-colors group-hover:bg-secondary/80">{ video.resolution }</span> }
-          { video.size && <span className="bg-secondary px-2 py-1 rounded transition-colors group-hover:bg-secondary/80">{ video.size }</span> }
-          { video.bitrate && <span className="bg-secondary px-2 py-1 rounded transition-colors group-hover:bg-secondary/80">{ video.bitrate }</span> }
+          <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+            { video.resolution && <span className="bg-secondary px-2 py-1 rounded transition-colors group-hover:bg-secondary/80">{ video.resolution }</span> }
+            { video.size && <span className="bg-secondary px-2 py-1 rounded transition-colors group-hover:bg-secondary/80">{ video.size }</span> }
+            { video.bitrate && <span className="bg-secondary px-2 py-1 rounded transition-colors group-hover:bg-secondary/80">{ video.bitrate }</span> }
+          </div>
+
+          { video.createdAt && <p className="text-xs text-muted-foreground">{ video.createdAt }</p> }
+
+        </div>
+        <div className="items-end self-end">
+          <Button
+            size="icon"
+            variant="ghost"
+            onClick={ () => onDelete(video) }
+            className="h-12 w-12 hover:bg-destructive/20 text-destructive transition-colors"
+          >
+            <Trash2 className="w-6 h-6" />
+          </Button>
         </div>
 
-        { video.createdAt && <p className="text-xs text-muted-foreground">{ video.createdAt }</p> }
+
       </div>
     </Card>
+
 
   )
 }
