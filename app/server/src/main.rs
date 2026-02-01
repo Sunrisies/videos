@@ -67,16 +67,15 @@ async fn main() {
             physical_path: dir.clone(),
         })
         .collect();
-
     // 初始化缩略图目录
     services::initialize_thumbnails_with_source(&physical_dirs);
-
+    info!("212212121");
     // 初始化数据库
     let db_manager = VideoDbManager::new("videos.db").expect("Failed to initialize database");
 
     // 从指定目录中初始化数据库
     let sync = services::DirectorySync::new(&db_manager);
-    if let Err(e) = sync.initialize_from_directory(&disk_mappings, false) {
+    if let Err(e) = sync.initialize_from_directory_with_progress(&disk_mappings, false) {
         println!("警告：无法从数据源目录初始化数据库: {}", e);
     } else {
         println!("数据库初始化成功");

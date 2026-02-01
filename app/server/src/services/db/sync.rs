@@ -17,11 +17,10 @@ use rayon::prelude::*;
 use rusqlite::Result;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex as StdMutex;
+use std::sync::{Arc, Mutex as StdMutex};
 use walkdir::WalkDir;
 
 /// 目录同步器
-///
 /// 负责扫描文件系统并同步数据到数据库，实现双向同步
 pub struct DirectorySync<'a> {
     db_manager: &'a VideoDbManager,
@@ -54,9 +53,8 @@ impl<'a> DirectorySync<'a> {
     pub fn new(db_manager: &'a VideoDbManager) -> Self {
         Self { db_manager }
     }
-
     /// 从多个目录初始化数据库（双向同步）
-    pub fn initialize_from_directory(
+    pub fn initialize_from_directory_with_progress(
         &self,
         mappings: &Vec<DiskMapping>,
         force: bool,
@@ -64,34 +62,35 @@ impl<'a> DirectorySync<'a> {
         // for mapping in mappings {
         let start_time = Instant::now();
 
+        info!("正在初始化同步...");
         // 检查数据库是否已初始化
         let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_COUNT)?;
         let count: i64 = stmt.query_row([], |row| row.get(0))?;
 
         if count > 0 && !force {
             info!("数据库已包含 {} 条记录，执行增量同步", count);
-            self.bidirectional_sync(mappings)?;
+
+            self.bidirectional_sync_with_progress(mappings)?;
             info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
             return Ok(());
         }
         // 如果 force 为 true 或数据库为空，则清除并重新初始化
         if force {
             info!("强制重新初始化，清除现有数据");
+
             self.db_manager.conn.execute("DELETE FROM videos", [])?;
         }
 
         // 执行完整的双向同步
-        self.bidirectional_sync(mappings)?;
+        self.bidirectional_sync_with_progress(mappings)?;
 
         info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
-        // }
 
         Ok(())
     }
 
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
-    fn bidirectional_sync(&self, mappings: &Vec<DiskMapping>) -> Result<()> {
-        let start_time = Instant::now();
+    fn bidirectional_sync_with_progress(&self, mappings: &Vec<DiskMapping>) -> Result<()> {
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
@@ -106,58 +105,66 @@ impl<'a> DirectorySync<'a> {
         let mut all_fs_files = HashMap::new();
         let mut all_scan_errors = Vec::new();
 
-        for mapping in mappings {
+        for (i, mapping) in mappings.iter().enumerate() {
             let physical_path = Path::new(&mapping.physical_path);
             let route_path = &mapping.route_path;
-            info!("开始数据库同步: {}", physical_path.display());
+
             let (fs_files, scan_errors) =
-                self.scan_filesystem_parallel(&mapping.physical_path, route_path);
+                self.scan_filesystem_with_progress(&mapping.physical_path, route_path);
             all_fs_files.extend(fs_files);
             all_scan_errors.extend(scan_errors);
         }
 
-        debug!("文件系统扫描到文件数: {}", all_fs_files.len());
-
-        // 记录扫描错误
-        for error in &all_scan_errors {
-            warn!("扫描错误: {}", error);
-        }
-
-        // 3. 处理新增和变更的文件
         let mut new_count = 0;
         let mut changed_count = 0;
         let mut skipped_count = 0;
-        // 开始时间
-        for (path, file_info) in &all_fs_files {
-            match db_records.get(path) {
-                None => {
-                    self.insert_new_record(file_info, &current_time)?;
-                    new_count += 1;
-                    debug!("新增: {}", file_info.name);
-                }
-                Some(db_record) => {
-                    if self.is_record_changed(file_info, db_record) {
-                        self.hard_delete_record(path)?;
+
+        // 使用进度计数器
+        let processed_counter = Arc::new(StdMutex::new(0));
+
+        // 分批处理以避免频繁锁竞争
+        let batch_size = 100;
+        let entries: Vec<_> = all_fs_files.iter().collect();
+
+        for batch in entries.chunks(batch_size) {
+            info!("共 {:?} 批", entries.len());
+            // 处理当前批次
+            for (path, file_info) in batch {
+                match db_records.get(*path) {
+                    None => {
                         self.insert_new_record(file_info, &current_time)?;
-                        changed_count += 1;
-                        debug!("更新: {}", file_info.name);
-                    } else {
-                        skipped_count += 1;
+                        new_count += 1;
+                        debug!("新增: {}", file_info.name);
+                    }
+                    Some(db_record) => {
+                        if self.is_record_changed(file_info, db_record) {
+                            self.hard_delete_record(path)?;
+                            self.insert_new_record(file_info, &current_time)?;
+                            changed_count += 1;
+                            debug!("更新: {}", file_info.name);
+                        } else {
+                            skipped_count += 1;
+                        }
                     }
                 }
             }
+
+            // 更新进度
+            let mut processed_guard = processed_counter.lock().unwrap();
+            *processed_guard += batch.len();
         }
-        // 结束时间
-        let elapsed_time = start_time.elapsed().as_millis();
-        info!("，耗时: {}ms", elapsed_time);
+
         // 4. 处理删除的文件
         let mut deleted_count = 0;
-        for (path, db_record) in &db_records {
+        for (i, (path, db_record)) in db_records.iter().enumerate() {
             if !all_fs_files.contains_key(path) {
                 self.hard_delete_record(path)?;
                 deleted_count += 1;
                 debug!("删除: {}", db_record.name);
             }
+
+            // 每处理100条报告一次进度
+            if i % 100 == 0 {}
         }
 
         // 输出统计信息
@@ -202,9 +209,8 @@ impl<'a> DirectorySync<'a> {
 
         Ok(records)
     }
-
-    /// 并行扫描文件系统
-    fn scan_filesystem_parallel(
+    /// 带进度报告的扫描文件系统
+    fn scan_filesystem_with_progress(
         &self,
         root_path: &str,
         route_path: &str,
@@ -252,6 +258,10 @@ impl<'a> DirectorySync<'a> {
         let errors = StdMutex::new(collect_errors);
         let root_ref = &root;
 
+        // 进度跟踪
+        let total = pending_entries.len();
+        let processed_counter = Arc::new(StdMutex::new(0));
+
         pending_entries.par_iter().for_each(|entry| {
             let result = Self::process_file_static(&entry.path, root_ref, route_path);
             match result {
@@ -267,8 +277,15 @@ impl<'a> DirectorySync<'a> {
                     errors_guard.push(e);
                 }
             }
-        });
 
+            // 更新进度（每10个文件更新一次）
+            let mut processed_guard = processed_counter.lock().unwrap();
+            *processed_guard += 1;
+
+            if *processed_guard % 10 == 0 || *processed_guard == total {
+                info!("已处理 {} / {}", *processed_guard, total);
+            }
+        });
         let files = files.into_inner().unwrap();
         let errors = errors.into_inner().unwrap();
 
@@ -318,9 +335,9 @@ impl<'a> DirectorySync<'a> {
         // 使用统一的 FFmpeg 服务获取视频信息
         let (thumbnail, duration, width, height) = if file_type == video_types::MP4 {
             let ffmpeg = get_ffmpeg_service();
-            let video_info = get_video_info(&path.to_string_lossy().to_string());
             // 检查缩略图是否已存在
             if thumb_path.exists() {
+                let video_info = get_video_info(&path.to_string_lossy().to_string());
                 match video_info {
                     Ok(info) => (
                         Some(thumb_path.to_string_lossy().to_string()),
@@ -336,6 +353,7 @@ impl<'a> DirectorySync<'a> {
                     ),
                 }
             } else {
+                info!("---------------------");
                 let metadata = ffmpeg.extract_video_info(path, &thumb_path);
                 (
                     metadata.thumbnail_path,

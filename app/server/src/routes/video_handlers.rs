@@ -84,7 +84,7 @@ pub async fn sync_videos(
 
     let data_source_dirs = Arc::clone(&state.data_source_dirs);
 
-    match sync.initialize_from_directory(&data_source_dirs, false) {
+    match sync.initialize_from_directory_with_progress(&data_source_dirs, false) {
         Ok(_) => {
             // Get updated count
             let video_dao = VideoDao::new(&db_manager);

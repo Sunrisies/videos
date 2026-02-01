@@ -1,6 +1,8 @@
+use rayon::prelude::*;
 use std::{
-    collections::HashSet,
+    collections::{HashMap, HashSet},
     path::{Path, PathBuf},
+    time::SystemTime,
 };
 
 use chrono::{DateTime, FixedOffset};
@@ -97,23 +99,38 @@ pub fn get_files_without_thumbnails(
     source_dir: &Path,
     thumbnails_path: &Path,
 ) -> Vec<(String, PathBuf)> {
-    // 获取源目录和缩略图目录的所有文件
-    let source_files = get_files(&[source_dir.to_string_lossy().to_string()]);
-    let thumbnail_files = get_files(&[thumbnails_path.to_string_lossy().to_string()]);
+    // 获取文件元数据
+    let get_metadata = |path: &Path| -> HashMap<String, (PathBuf, SystemTime)> {
+        std::fs::read_dir(path)
+            .unwrap()
+            .filter_map(|entry| {
+                let entry = entry.ok()?;
+                let path = entry.path();
+                let name = path.file_stem()?.to_string_lossy().into_owned();
+                let metadata = entry.metadata().ok()?;
+                let modified = metadata.modified().ok()?;
+                Some((name, (path, modified)))
+            })
+            .collect()
+    };
 
-    // 创建缩略图文件名的集合，便于快速查找
-    let thumbnail_names: HashSet<String> = thumbnail_files
-        .iter()
-        .map(|(name, _, _, _)| name.clone())
-        .collect();
-    // 筛选出没有对应缩略图的源文件
-    let files_without_thumbnails = source_files
-        .iter()
-        .filter(|(name, _, _, _)| !thumbnail_names.contains(name))
-        .map(|(name, _, _, path)| (name.clone(), path.clone()))
-        .collect();
+    // 并行获取源目录和缩略图目录的文件元数据
+    let (source_files, thumbnail_files) = rayon::join(
+        || get_metadata(source_dir),
+        || get_metadata(thumbnails_path),
+    );
 
-    files_without_thumbnails
+    // 筛选出需要更新的文件
+    source_files
+        .into_par_iter()
+        .filter(
+            |(name, (_source_path, source_modified))| match thumbnail_files.get(name) {
+                Some((_, thumbnail_modified)) => source_modified > thumbnail_modified,
+                None => true,
+            },
+        )
+        .map(|(name, (path, _))| (name, path))
+        .collect()
 }
 
 #[derive(Debug)]
@@ -124,7 +141,6 @@ pub struct VideoInfo {
 }
 
 pub fn get_video_info(file_path: &str) -> Result<VideoInfo, Box<dyn std::error::Error>> {
-    info!("get_video_info: {}", file_path);
     // 打开文件并获取大小
     let file = File::open(file_path)?;
     let size = file.metadata()?.len();
