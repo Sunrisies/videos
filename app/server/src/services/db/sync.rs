@@ -4,6 +4,7 @@
 //! - 并行文件处理
 //! - 增量扫描
 //! - 双向同步
+//! - 流式处理优化
 
 use crate::services::db::connection::VideoDbManager;
 use crate::services::db::schema::{queries, video_types};
@@ -53,13 +54,13 @@ impl<'a> DirectorySync<'a> {
     pub fn new(db_manager: &'a VideoDbManager) -> Self {
         Self { db_manager }
     }
+
     /// 从多个目录初始化数据库（双向同步）
     pub fn initialize_from_directory_with_progress(
         &self,
         mappings: &Vec<DiskMapping>,
         force: bool,
     ) -> Result<()> {
-        // for mapping in mappings {
         let start_time = Instant::now();
 
         info!("正在初始化同步...");
@@ -74,10 +75,10 @@ impl<'a> DirectorySync<'a> {
             info!("同步完成，耗时: {}ms", start_time.elapsed().as_millis());
             return Ok(());
         }
+
         // 如果 force 为 true 或数据库为空，则清除并重新初始化
         if force {
             info!("强制重新初始化，清除现有数据");
-
             self.db_manager.conn.execute("DELETE FROM videos", [])?;
         }
 
@@ -90,6 +91,7 @@ impl<'a> DirectorySync<'a> {
     }
 
     /// 双向同步：文件系统 -> 数据库 + 数据库 -> 文件系统
+    /// 优化版本：使用流式处理，减少内存占用
     fn bidirectional_sync_with_progress(&self, mappings: &Vec<DiskMapping>) -> Result<()> {
         let current_time = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -101,70 +103,62 @@ impl<'a> DirectorySync<'a> {
         let db_records = self.get_all_db_records()?;
         info!("数据库中记录数: {}", db_records.len());
 
-        // 2. 并行扫描所有文件系统目录
-        let mut all_fs_files = HashMap::new();
-        let mut all_scan_errors = Vec::new();
-
-        for (i, mapping) in mappings.iter().enumerate() {
-            let physical_path = Path::new(&mapping.physical_path);
-            let route_path = &mapping.route_path;
-
-            let (fs_files, scan_errors) =
-                self.scan_filesystem_with_progress(&mapping.physical_path, route_path);
-            all_fs_files.extend(fs_files);
-            all_scan_errors.extend(scan_errors);
-        }
-
+        // 2. 使用流式处理同步文件系统
         let mut new_count = 0;
         let mut changed_count = 0;
         let mut skipped_count = 0;
+        let mut deleted_count = 0;
 
-        // 使用进度计数器
-        let processed_counter = Arc::new(StdMutex::new(0));
+        // 使用 Arc 和 Mutex 共享计数器，用于跨线程统计
+        let stats = Arc::new(StdMutex::new(Stats {
+            new: 0,
+            changed: 0,
+            skipped: 0,
+        }));
 
-        // 分批处理以避免频繁锁竞争
-        let batch_size = 100;
-        let entries: Vec<_> = all_fs_files.iter().collect();
+        // 创建数据库连接的克隆（如果支持）
+        // 注意：SQLite 连接不支持跨线程使用，需要在每个线程创建新连接
+        // 这里假设 VideoDbManager 提供了创建新连接的方法
+        // 如果不支持，需要使用通道将数据发送到主线程处理
 
-        for batch in entries.chunks(batch_size) {
-            info!("共 {:?} 批", entries.len());
-            // 处理当前批次
-            for (path, file_info) in batch {
-                match db_records.get(*path) {
-                    None => {
-                        self.insert_new_record(file_info, &current_time)?;
-                        new_count += 1;
-                        debug!("新增: {}", file_info.name);
-                    }
-                    Some(db_record) => {
-                        if self.is_record_changed(file_info, db_record) {
-                            self.hard_delete_record(path)?;
-                            self.insert_new_record(file_info, &current_time)?;
-                            changed_count += 1;
-                            debug!("更新: {}", file_info.name);
-                        } else {
-                            skipped_count += 1;
-                        }
-                    }
-                }
-            }
+        for mapping in mappings.iter() {
+            let physical_path = Path::new(&mapping.physical_path);
+            let route_path = &mapping.route_path;
 
-            // 更新进度
-            let mut processed_guard = processed_counter.lock().unwrap();
-            *processed_guard += batch.len();
+            // 流式处理文件系统
+            let (processed_count, error_count) = self.process_filesystem_streaming(
+                physical_path,
+                route_path,
+                &db_records,
+                &current_time,
+                &stats,
+            )?;
+
+            info!(
+                "处理目录 {} 完成: 处理 {} 个文件, {} 个错误",
+                mapping.route_path, processed_count, error_count
+            );
         }
 
-        // 4. 处理删除的文件
-        let mut deleted_count = 0;
-        for (i, (path, db_record)) in db_records.iter().enumerate() {
-            if !all_fs_files.contains_key(path) {
+        // 获取统计结果
+        let stats_guard = stats.lock().unwrap();
+        new_count = stats_guard.new;
+        changed_count = stats_guard.changed;
+        skipped_count = stats_guard.skipped;
+        drop(stats_guard);
+
+        // 3. 处理删除的文件
+        let mut processed_files = HashMap::new();
+        for mapping in mappings.iter() {
+            self.collect_file_paths(Path::new(&mapping.physical_path), &mut processed_files);
+        }
+
+        for (path, db_record) in db_records.iter() {
+            if !processed_files.contains_key(path) {
                 self.hard_delete_record(path)?;
                 deleted_count += 1;
                 debug!("删除: {}", db_record.name);
             }
-
-            // 每处理100条报告一次进度
-            if i % 100 == 0 {}
         }
 
         // 输出统计信息
@@ -177,49 +171,25 @@ impl<'a> DirectorySync<'a> {
             debug!("无变化，跳过 {} 个文件", skipped_count);
         }
 
-        if !all_scan_errors.is_empty() {
-            warn!("扫描过程中有 {} 个错误", all_scan_errors.len());
-        }
-
         Ok(())
     }
 
-    /// 获取数据库中所有记录
-    fn get_all_db_records(&self) -> Result<HashMap<String, FileInfo>> {
-        let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_FULL)?;
-        let mut records = HashMap::new();
-
-        let mut rows = stmt.query([])?;
-        while let Some(row) = rows.next()? {
-            let record = FileInfo {
-                name: row.get(0)?,
-                path: row.get(1)?,
-                file_type: row.get(2)?,
-                thumbnail: row.get(3)?,
-                duration: row.get(4)?,
-                size: row.get(5)?,
-                created_at: row.get(9)?,
-                subtitle: row.get(10)?,
-                parent_path: row.get(11)?,
-                width: row.get(12)?,
-                height: row.get(13)?,
-            };
-            records.insert(record.path.clone(), record);
-        }
-
-        Ok(records)
-    }
-    /// 带进度报告的扫描文件系统
-    fn scan_filesystem_with_progress(
+    /// 流式处理文件系统
+    /// 优化版本：边扫描边处理，减少内存占用
+    fn process_filesystem_streaming(
         &self,
-        root_path: &str,
+        root_path: &Path,
         route_path: &str,
-    ) -> (HashMap<String, FileInfo>, Vec<String>) {
+        db_records: &HashMap<String, FileInfo>,
+        current_time: &str,
+        stats: &Arc<StdMutex<Stats>>,
+    ) -> Result<(usize, usize)> {
         let root = PathBuf::from(root_path);
 
         // 检查根目录是否存在
         if !root.exists() {
-            return (HashMap::new(), vec![format!("根目录不存在: {}", root_path)]);
+            warn!("根目录不存在: {}", root_path.display());
+            return Ok((0, 0));
         }
 
         // 第一步：收集所有待处理的文件条目
@@ -254,52 +224,184 @@ impl<'a> DirectorySync<'a> {
         debug!("收集到 {} 个待处理条目", pending_entries.len());
 
         // 第二步：并行处理所有条目
-        let files = StdMutex::new(HashMap::new());
-        let errors = StdMutex::new(collect_errors);
-        let root_ref = &root;
-
-        // 进度跟踪
         let total = pending_entries.len();
-        let processed_counter = Arc::new(StdMutex::new(0));
+        let processed_counter = Arc::new(StdMutex::new(0usize));
+        let error_counter = Arc::new(StdMutex::new(0usize));
 
-        pending_entries.par_iter().for_each(|entry| {
-            let result = Self::process_file_static(&entry.path, root_ref, route_path);
-            match result {
-                Ok(Some(file_info)) => {
-                    let mut files_guard = files.lock().unwrap();
-                    files_guard.insert(file_info.path.clone(), file_info);
+        // 使用通道收集处理结果
+        let (tx, rx) = std::sync::mpsc::channel();
+
+        // 分批处理以避免通道过大
+        let batch_size = 100;
+        let batches: Vec<_> = pending_entries.chunks(batch_size).collect();
+
+        // 处理批次
+        for batch in batches {
+            let batch = batch.to_vec();
+            let tx_clone = tx.clone();
+            let root_ref = root.clone();
+            let route_path_ref = route_path.to_string();
+            let db_records_ref = db_records.clone();
+            let current_time_ref = current_time.to_string();
+            let stats_ref = stats.clone();
+            let processed_counter_ref = processed_counter.clone();
+            let error_counter_ref = error_counter.clone();
+            let total_ref = total;
+
+            // 在线程池中处理每个批次
+            rayon::spawn(move || {
+                for entry in batch {
+                    let result = Self::process_file_static(
+                        &entry.path,
+                        &root_ref,
+                        &route_path_ref,
+                        &db_records_ref,
+                        &current_time_ref,
+                        &stats_ref,
+                    );
+
+                    match result {
+                        Ok(Some(file_info)) => {
+                            // 发送处理结果到主线程
+                            let _ = tx_clone.send(Ok(file_info));
+                        }
+                        Ok(None) => {
+                            // 跳过不需要处理的条目
+                        }
+                        Err(e) => {
+                            let _ = tx_clone.send(Err(e));
+                            let mut guard = error_counter_ref.lock().unwrap();
+                            *guard += 1;
+                        }
+                    }
+
+                    // 更新进度
+                    let mut guard = processed_counter_ref.lock().unwrap();
+                    *guard += 1;
+                    let processed = *guard;
+
+                    if processed % 10 == 0 || processed == total_ref {
+                        info!("已处理 {} / {}", processed, total_ref);
+                    }
                 }
-                Ok(None) => {
-                    // 跳过不需要处理的条目
+            });
+        }
+
+        // 关闭发送端
+        drop(tx);
+
+        // 主线程处理数据库操作
+        for result in rx {
+            match result {
+                Ok(file_info) => {
+                    // 直接处理数据库操作
+                    match db_records.get(&file_info.path) {
+                        None => {
+                            if let Err(e) = self.insert_new_record(&file_info, current_time) {
+                                warn!("插入记录失败: {} - {}", file_info.name, e);
+                            }
+                        }
+                        Some(db_record) => {
+                            if self.is_record_changed(&file_info, db_record) {
+                                if let Err(e) = self.hard_delete_record(&file_info.path) {
+                                    warn!("删除旧记录失败: {} - {}", file_info.name, e);
+                                }
+                                if let Err(e) = self.insert_new_record(&file_info, current_time) {
+                                    warn!("更新记录失败: {} - {}", file_info.name, e);
+                                }
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
-                    let mut errors_guard = errors.lock().unwrap();
-                    errors_guard.push(e);
+                    warn!("处理文件失败: {}", e);
                 }
             }
+        }
 
-            // 更新进度（每10个文件更新一次）
-            let mut processed_guard = processed_counter.lock().unwrap();
-            *processed_guard += 1;
+        // 获取处理计数
+        let processed = *processed_counter.lock().unwrap();
+        let errors = *error_counter.lock().unwrap();
 
-            if *processed_guard % 10 == 0 || *processed_guard == total {
-                info!("已处理 {} / {}", *processed_guard, total);
+        Ok((processed, errors))
+    }
+
+    /// 收集文件路径（用于检测删除的文件）
+    fn collect_file_paths(&self, root: &Path, paths: &mut HashMap<String, ()>) {
+        for entry in WalkDir::new(root)
+            .max_depth(1)
+            .into_iter()
+            .filter_map(|e| e.ok())
+        {
+            let path = entry.path();
+            if path == root || !is_video_or_container(path) {
+                continue;
             }
-        });
-        let files = files.into_inner().unwrap();
-        let errors = errors.into_inner().unwrap();
+            paths.insert(path.to_string_lossy().to_string(), ());
+        }
+    }
 
-        (files, errors)
+    /// 获取数据库中所有记录
+    fn get_all_db_records(&self) -> Result<HashMap<String, FileInfo>> {
+        let mut stmt = self.db_manager.conn.prepare(queries::SELECT_ALL_FULL)?;
+        let mut records = HashMap::new();
+
+        let mut rows = stmt.query([])?;
+        while let Some(row) = rows.next()? {
+            let record = FileInfo {
+                name: row.get(0)?,
+                path: row.get(1)?,
+                file_type: row.get(2)?,
+                thumbnail: row.get(3)?,
+                duration: row.get(4)?,
+                size: row.get(5)?,
+                created_at: row.get(9)?,
+                subtitle: row.get(10)?,
+                parent_path: row.get(11)?,
+                width: row.get(12)?,
+                height: row.get(13)?,
+            };
+            records.insert(record.path.clone(), record);
+        }
+
+        Ok(records)
     }
 
     /// 静态方法：处理普通文件（用于并行处理）
+    /// 优化版本：增加数据库记录比较，避免不必要的处理
     fn process_file_static(
         path: &Path,
         _root: &Path,
         route_path: &str,
+        db_records: &HashMap<String, FileInfo>,
+        current_time: &str,
+        stats: &Arc<StdMutex<Stats>>,
     ) -> std::result::Result<Option<FileInfo>, String> {
         if !path.is_file() {
             return Ok(None);
+        }
+
+        let path_str = path.to_string_lossy().to_string();
+
+        // 检查是否已存在于数据库中，如果存在且未变更，则跳过处理
+        if let Some(db_record) = db_records.get(&path_str) {
+            let metadata = std::fs::metadata(path).ok();
+            let created_at = metadata
+                .as_ref()
+                .and_then(|m| get_systemtime_created(m))
+                .unwrap_or_default();
+
+            // 如果创建时间相同，且已有缩略图和尺寸信息，则跳过详细处理
+            if created_at == db_record.created_at
+                && db_record.thumbnail.is_some()
+                && db_record.width.is_some()
+                && db_record.height.is_some()
+            {
+                // 更新跳过计数
+                let mut stats_guard = stats.lock().unwrap();
+                stats_guard.skipped += 1;
+                return Ok(None);
+            }
         }
 
         let extension = path
@@ -373,9 +475,20 @@ impl<'a> DirectorySync<'a> {
             None
         };
 
+        // 更新统计信息
+        let path_str = path.to_string_lossy().to_string();
+        if db_records.contains_key(&path_str) {
+            let mut stats_guard = stats.lock().unwrap();
+            info!("changed: {}", path_str);
+            stats_guard.changed += 1;
+        } else {
+            let mut stats_guard = stats.lock().unwrap();
+            stats_guard.new += 1;
+        }
+
         Ok(Some(FileInfo {
             name,
-            path: path.to_string_lossy().to_string(),
+            path: path_str,
             created_at,
             file_type: file_type.to_string(),
             parent_path: route_path.to_string(),
@@ -484,4 +597,12 @@ impl<'a> DirectorySync<'a> {
             .execute("DELETE FROM videos WHERE path = ?", &[path])?;
         Ok(())
     }
+}
+
+/// 统计信息结构体
+#[derive(Debug, Default)]
+struct Stats {
+    new: usize,
+    changed: usize,
+    skipped: usize,
 }
